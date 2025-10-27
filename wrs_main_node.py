@@ -460,9 +460,11 @@ class WrsMainController(object):
         rospy.loginfo("#### start Task 1 ####")
         hsr_position = [
             ("tall_table", "look_at_tall_table"),
-            # ("near_long_table_l", "look_at_near_floor"),
-            # ("long_table_r", "look_at_tall_table"),
+            ("near_long_table_l", "look_at_near_floor"),
+            ("long_table_r", "look_at_tall_table"),
         ]
+
+        self.pull_out_trofast(0.178, -0.29, 0.75, -90, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
@@ -482,7 +484,7 @@ class WrsMainController(object):
                 label = graspable_obj["label"]
                 grasp_bbox = graspable_obj["bbox"]
                 # TODO ラベル名を確認するためにコメントアウトを外す
-                # rospy.loginfo("grasp the " + label)
+                rospy.loginfo("grasp the " + label)
 
                 # 把持対象がある場合は把持関数実施
                 grasp_pos = self.get_grasp_coordinate(grasp_bbox)
