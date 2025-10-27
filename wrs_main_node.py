@@ -25,7 +25,7 @@ class WrsMainController(object):
     """
     WRSのシミュレーション環境内でタスクを実行するクラス
     """
-    IGNORE_LIST = ["small_marker", "large_marker", "lego_duplo", "spatula", "nine_hole_peg_test"]
+    IGNORE_LIST = []
     GRASP_TF_NAME = "object_grasping"
     GRASP_BACK_SAFE = {"z": 0.05, "xy": 0.3}
     GRASP_BACK = {"z": 0.05, "xy": 0.1}
@@ -464,11 +464,11 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.178, 0.8, 0.75, -90, -100, 0)
+        # self.pull_out_trofast(0.178, 0.8, 0.75, -90, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
-            for _ in range(self.DETECT_CNT):
+            while True:
                 # 移動と視線指示
                 self.goto_name(plc)
                 self.change_pose(pose)
