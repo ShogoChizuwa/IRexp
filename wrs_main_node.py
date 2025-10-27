@@ -468,7 +468,7 @@ class WrsMainController(object):
 
         total_cnt = 0
         for plc, pose in hsr_position:
-            while True:
+            for _ in range(self.DETECT_INT):
                 # 移動と視線指示
                 self.goto_name(plc)
                 self.change_pose(pose)
