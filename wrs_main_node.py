@@ -436,42 +436,16 @@ class WrsMainController(object):
         rospy.sleep(5.0)
         self.change_pose("all_neutral")
 
-    def pull_out_trofast(self, x, y, z, yaw, pitch, roll, base_yaw_deg):
+    def pull_out_trofast(self, x, y, z, yaw, pitch, roll):
         # trofastの引き出しを引き出す
-        
-        # 1. 台車の向き（base_yaw_deg）を取得
-        base_yaw_rad = math.radians(base_yaw_deg)
-        
-        # 2. ロボットの「手前」方向の角度を計算
-        #    （台車の向き(yaw)と、引き出す方向(+y)は、90度のオフセットがあると仮定）
-        #    ※このオフセット(math.pi / 2)は、ロボットの座標系に合わせて調整が必要な場合があります
-        pull_yaw_rad = base_yaw_rad + (math.pi / 2) 
-        
-        # 3.「手前」方向の移動ベクトル(dx, dy)を計算
-        pull_distance = self.TROFAST_Y_OFFSET # 0.2m
-        dx_hand_relative = pull_distance * math.cos(pull_yaw_rad)
-        dy_hand_relative = pull_distance * math.sin(pull_yaw_rad)
-
-        # 4. 目標座標を計算
-        #    手前 (y + offset ではなく、計算したベクトルを加算)
-        pos_before_grasp = (x + dx_hand_relative, y + dy_hand_relative, z)
-        #    掴む位置 (引数通り)
-        pos_grasp = (x, y, z)
-        
-        # --- 実行 ---
-        self.goto_name("stair_like_drawer") # 台車はここで指定された向きになる
+        self.goto_name("stair_like_drawer")
         self.change_pose("grasp_on_table")
-        
+        a = True  # TODO 不要な変数
         gripper.command(1)
-        # 手前へ移動
-        whole_body.move_end_effector_pose(pos_before_grasp[0], pos_before_grasp[1], pos_before_grasp[2], yaw, pitch, roll)
-        # ハンドル位置へ移動
-        whole_body.move_end_effector_pose(pos_grasp[0], pos_grasp[1], pos_grasp[2], yaw, pitch, roll)
-        # 掴む
+        whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw, pitch, roll)
+        whole_body.move_end_effector_pose(x, y, z, yaw, pitch, roll)
         gripper.command(0)
-        # 手前（引き出しを引く）へ移動
-        whole_body.move_end_effector_pose(pos_before_grasp[0], pos_before_grasp[1], pos_before_grasp[2], yaw, pitch, roll)
-        
+        whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw,  pitch, roll)
         gripper.command(1)
         self.change_pose("all_neutral")
 
@@ -629,7 +603,8 @@ class WrsMainController(object):
 
     def find_safe_x_lane(self, pos_bboxes, current_x, current_y):
         """
-        [NEW] Y軸移動後、現在のY座標でX軸（横移動）の安全なレーンをスコアで見つける
+        [v4] Y軸移動後、現在のY座標で安全なXレーンを見つける。
+        安全なレーンが複数ある場合、[最も遠い]ものを選択する。
         """
         interval = 0.45
         pos_xa = 1.7
@@ -643,54 +618,59 @@ class WrsMainController(object):
             "xc": pos_xc
         }
         
-        # 各レーンの安全スコア（0=ブロックされている, 1=安全）
-        lane_scores = {
+        # 各レーンの安全フラグ (1=安全, 0=ブロック)
+        lane_safety = {
             "xa": 1,
             "xb": 1,
             "xc": 1
         }
         
-        # X軸（横移動）チェック用のY座標範囲
-        # (現在のY座標の ±15cm をチェック)
+        # X軸（横移動）チェック用のY座標範囲 (±15cm)
         X_CHECK_Y_MIN = current_y - 0.15
         X_CHECK_Y_MAX = current_y + 0.15
+        
+        # 安全バッファ（横移動の経路チェック用）
+        SAFETY_BUFFER = 0.3 # 30cm (ロボットの車体幅半分)
 
         for bbox in pos_bboxes:
             pos_x = bbox.x
             pos_y = bbox.y
 
             # --- X軸（横移動）経路の安全チェック ---
-            # (current_y の ±15cm にある障害物を見る)
             if (X_CHECK_Y_MIN < pos_y < X_CHECK_Y_MAX):
                 # この障害物は「今いるY座標」の近くにある
                 
-                # 'xa'レーンへの横移動をブロックしていないか？
-                if min(current_x, lane_centers["xa"]) < pos_x < max(current_x, lane_centers["xa"]):
-                    lane_scores["xa"] = 0 # ブロックされている
+                # 'xa'レーンへの横移動経路(current_x と xa の間)をブロックしていないか？
+                if (pos_x - SAFETY_BUFFER) < max(current_x, lane_centers["xa"]) and \
+                   (pos_x + SAFETY_BUFFER) > min(current_x, lane_centers["xa"]):
+                    lane_safety["xa"] = 0 # ブロックされている
                 
-                # 'xb'レーンへの横移動をブロックしていないか？
-                if min(current_x, lane_centers["xb"]) < pos_x < max(current_x, lane_centers["xb"]):
-                    lane_scores["xb"] = 0 # ブロックされている
+                # 'xb'レーンへの横移動経路をブロックしていないか？
+                if (pos_x - SAFETY_BUFFER) < max(current_x, lane_centers["xb"]) and \
+                   (pos_x + SAFETY_BUFFER) > min(current_x, lane_centers["xb"]):
+                    lane_safety["xb"] = 0 # ブロックされている
                 
-                # 'xc'レーンへの横移動をブロックしていないか？
-                if min(current_x, lane_centers["xc"]) < pos_x < max(current_x, lane_centers["xc"]):
-                    lane_scores["xc"] = 0 # ブロックされている
+                # 'xc'レーンへの横移動経路をブロックしていないか？
+                if (pos_x - SAFETY_BUFFER) < max(current_x, lane_centers["xc"]) and \
+                   (pos_x + SAFETY_BUFFER) > min(current_x, lane_centers["xc"]):
+                    lane_safety["xc"] = 0 # ブロックされている
 
-        rospy.loginfo("X-Lane scores (Path blocked=0): xa=%.2f, xb=%.2f, xc=%.2f", 
-                      lane_scores["xa"], lane_scores["xb"], lane_scores["xc"])
+        rospy.loginfo("X-Lane safety (Blocked=0): xa=%.2f, xb=%.2f, xc=%.2f", 
+                      lane_safety["xa"], lane_safety["xb"], lane_safety["xc"])
 
         # スコアが0（ブロック）でないレーンだけを候補にする
-        safe_lanes = {lane: center for lane, center in lane_centers.items() if lane_scores[lane] > 0}
+        safe_lanes = {lane: center for lane, center in lane_centers.items() if lane_safety[lane] > 0}
 
         if not safe_lanes:
             rospy.logwarn("All X-lanes are blocked! Staying at current X=%.2f.", current_x)
             return current_x # 安全なレーンがない場合、動かない (これが最も安全)
         else:
-            # 安全なレーンの中で、現在地に最も近いレーンを選択する
-            best_lane_name = min(safe_lanes.keys(), key=lambda lane: abs(safe_lanes[lane] - current_x))
-            rospy.loginfo("Selected best (closest) X-lane: %s", best_lane_name)
+            # --- ★ロジック変更点 ---
+            # 安全なレーンの中で、[現在地に最も遠い]レーンを選択する
+            best_lane_name = max(safe_lanes.keys(), key=lambda lane: abs(safe_lanes[lane] - current_x))
+            rospy.loginfo("Selected best (farthest safe) X-lane: %s", best_lane_name)
             return safe_lanes[best_lane_name]
-    
+            
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
         [元に戻したロジック] xa,xb,xcの固定優先順位でウェイポイントを返す。
@@ -776,11 +756,7 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        # 1. coordinates.json から台車の向き（yaw）を取得
-        base_yaw = self.coordinates["positions"]["stair_like_drawer"][2] # 3番目の値 (-90)
-
-        # 2. 7番目の引数として base_yaw を渡す
-        self.pull_out_trofast(0.178, -0.1, 0.55, -90, -100, 0, base_yaw)
+        self.pull_out_trofast(0.178, -0.1, 0.55, 0, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
@@ -914,26 +890,6 @@ class WrsMainController(object):
         self.change_pose("all_neutral")
         self.execute_task1()
         self.execute_task2a()
-        rospy.loginfo("#### Task1 & 2a Finished. Waiting for Task2b instructions... ####")
-        # --- 2. Task2b の指示待ちループ ---
-        # 最後に処理した指示の「数」を記録しておく変数
-        # （instruction_cb [cite: 164-169] が呼ばれると self.instruction_list [cite: 130] の数が増える）
-        last_instruction_count = len(self.instruction_list)
-        # 1秒間に1回チェックするループ
-        rate = rospy.Rate(1) 
-        while not rospy.is_shutdown():
-            # 現在の指示の総数が、最後に処理した数より多いか確認
-            if len(self.instruction_list) > last_instruction_count:
-                    # --- 新しい指示が来た場合の処理 ---
-                    rospy.loginfo("New instruction detected. Executing Task2b.")
-                    # Task2bを実行
-                    # (execute_task2b [cite: 928-955] はリストの最後[-1] [cite: 943] の指示を取得します)
-                    self.execute_task2b()
-                # 処理済みの指示カウントを、現在のリストの総数に更新
-                    last_instruction_count = len(self.instruction_list)
-                    rospy.loginfo("#### Task2b Finished. Waiting for next instruction... ####")
-            # ループの待機
-            rate.sleep()
         self.execute_task2b()
 
 
