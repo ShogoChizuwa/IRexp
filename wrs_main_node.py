@@ -508,76 +508,7 @@ class WrsMainController(object):
             # TODO メッセージを確認するためコメントアウトを外す
             # rospy.loginfo(waypoint)
             self.goto_pos(waypoint)
-    """
-    def select_next_waypoint(self, current_stp, pos_bboxes):
-        waypoints から近い場所にあるものを除外し、最適なwaypointを返す。
-        x座標を原点に近い方からxa,xb,xcに定義する。bboxを判断基準として移動先を決定する(デフォルトは0.45間隔)
-        pos_bboxesは get_grasp_coordinate() 済みであること
-        interval = 0.45
-        pos_xa = 1.7
-        pos_xb = pos_xa + interval
-        pos_xc = pos_xb + interval
-
-        # xa配列はcurrent_stpに関係している
-        waypoints = {
-            "xa": [ [pos_xa, 1.995, 45], [pos_xa, 2.14, 45], [pos_xa, 2.285, 45], [pos_xa, 2.43, 45], [pos_xa, 2.575, 45],
-                    [pos_xa, 2.72, 90], [pos_xa, 2.865, 90], [pos_xa, 3.01, 90], [pos_xa, 3.155, 90], [pos_xa, 3.3, 90] ], 
-            "xb": [ [pos_xb, 1.995, 90], [pos_xb, 2.14, 90], [pos_xb, 2.285, 90], [pos_xb, 2.43, 90], [pos_xb, 2.575, 90],
-                    [pos_xb, 2.72, 90], [pos_xb, 2.865, 90], [pos_xb, 3.01, 90], [pos_xb, 3.155, 90], [pos_xb, 3.3, 90] ],
-            "xc": [ [pos_xc, 1.995, 135], [pos_xc, 2.14, 135], [pos_xc, 2.285, 135], [pos_xc, 2.43, 135], [pos_xc, 2.575, 135],
-                    [pos_xc, 2.72, 90], [pos_xc, 2.865, 90], [pos_xc, 3.01, 90], [pos_xc, 3.155, 90], [pos_xc, 3.3, 90] ]
-        }
-        #y座標で場合分け
-        y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
-        #現在のyと次のy
-        current_y = y_thresholds[current_stp]
-        next_y = y_thresholds[current_stp + 1]
-        # posがxa,xb,xcのラインに近い場合は候補から削除
-        is_to_xa = True
-        is_to_xb = True
-        is_to_xc = True
-
-        for bbox in pos_bboxes:
-            pos_x = bbox.x
-            pos_y = bbox.y
-            # TODO デバッグ時にコメントアウトを外す
-            # rospy.loginfo("detected object obj.x = {:.2f}".format(bbox.x))
-
-            # NOTE Hint:ｙ座標次第で無視してよいオブジェクトもある。
-            if not (current_y < pos_y < next_y):
-                # rospy.loginfo("  -> Ignored (Out of Y-Range)")
-                continue  # 判定範囲外の障害物は無視する
-            if pos_x < pos_xa + (interval/2):
-                is_to_xa = False
-                # rospy.loginfo("is_to_xa=False")
-                continue
-            elif pos_x < pos_xb + (interval/2):
-                is_to_xb = False
-                # rospy.loginfo("is_to_xb=False")
-                continue
-            elif pos_x < pos_xc + (interval/2):
-                is_to_xc = False
-                # rospy.loginfo("is_to_xc=False")
-                continue
-
-        x_line = None   # xa,xb,xcいずれかのリストが入る
-        # NOTE 優先的にxcに移動する
-        if is_to_xc:
-            x_line = waypoints["xc"]
-            rospy.loginfo("select next waypoint_xc")
-        elif is_to_xb:
-            x_line = waypoints["xb"]
-            rospy.loginfo("select next waypoint_xb")
-        elif is_to_xa:
-            x_line = waypoints["xa"]
-            rospy.loginfo("select next waypoint_xa")
-        else:
-            # a,b,cいずれにも移動できない場合
-            x_line = waypoints["xb"]
-            rospy.loginfo("select default waypoint")
-
-        return x_line[current_stp]
-    """
+    
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
         [改善版] 各レーンの安全性をスコア化し、最も安全なウェイポイントを返す。
