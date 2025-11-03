@@ -584,27 +584,66 @@ class WrsMainController(object):
                 # self.change_pose(pose)
                 gripper.command(0)
 
-                # 把持対象の有無チェック
-                detected_objs = self.get_latest_detection()
-                graspable_obj = self.get_most_graspable_obj(detected_objs.bboxes)
+                # 検出した全物体を取得
+                detected_objs = self.get_latest_detection().bboxes
+                
+                # 「床にある」と判断した物体候補のリスト
+                floor_objects_info = []
 
-                if graspable_obj is None:
-                    rospy.logwarn("Cannot determine object to grasp. Grasping is aborted.")
-                    break
-                label = graspable_obj["label"]
-                grasp_bbox = graspable_obj["bbox"]
+                # Y座標（奥行き）のしきい値
+                # exec_graspable_method の graspable_y (1.85) と同じ値
+                GRASPABLE_Y_THRESHOLD = 1.85 
+
+                for obj in detected_objs:
+                    # 物体の3D座標を取得
+                    grasp_pos = self.get_grasp_coordinate(obj)
+                    if grasp_pos is None:
+                        rospy.logwarn("Failed to get coordinate for [%s]", obj.label)
+                        break
+
+                    # フィルター：Y座標（奥行き）チェック
+                    if grasp_pos.y >= GRASPABLE_Y_THRESHOLD:
+                        rospy.loginfo("Ignoring object [%s] (Too far: Y=%.2f)", obj.label, grasp_pos.y)
+                        continue # 壁の奥など、奥すぎると判断し、無視
+
+                    # フィルターを通過した物体のみ候補リストに追加
+                    score = self.calc_score_bbox(obj)
+                    floor_objects_info.append({
+                        "bbox": obj, 
+                        "score": score, 
+                        "label": obj.label, 
+                        "pos": grasp_pos  # 3D座標も保存
+                    })
+
+                # 候補リストをスコアの高い順にソート
+                floor_objects_info.sort(key=lambda x: x["score"], reverse=True)
+
+                # 最終的な把持対象を決定
+                if not floor_objects_info:
+                    # 候補が一つもなかった
+                    rospy.logwarn("Cannot find graspable object on the floor in this view.")
+                    continue # 次の検出試行へ
+
+                # 最もスコアの高い物体を選択
+                best_obj_info = floor_objects_info[0]
+                grasp_pos = best_obj_info["pos"]
+                label = best_obj_info["label"]
                 # TODO ラベル名を確認するためにコメントアウトを外す
                 rospy.loginfo("grasp the " + label)
 
                 # 把持対象がある場合は把持関数実施
-                grasp_pos = self.get_grasp_coordinate(grasp_bbox)
                 self.change_pose("grasp_on_table")
-                self.exec_graspable_method(grasp_pos, label)
+                
+                # 座標チェックは完了しているので、exec_graspable_method を実行
+                if not self.exec_graspable_method(grasp_pos, label):
+                    rospy.logwarn("exec_graspable_method returned False for [%s]", label)
+                    continue
+                
                 self.change_pose("all_neutral")
 
                 # 1. ラベルからカテゴリと配置場所を取得
                 category, place_name = self.get_placement_info(label)
-                place_name = "bin_a"
+                #place_name = "bin_a"
 
                 # 2. 常に "put_in_bin" の姿勢を使う（テスト用）
                 into_pose = "put_in_bin" 
