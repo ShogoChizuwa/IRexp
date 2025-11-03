@@ -16,7 +16,14 @@
     "person_b": [0.7, 3.9, 180],
     "home": [0, 0.2, 0],
     "tall_table_front": [-0.02, 0.7, 95],
-    "long_table_r_front": [1.45, 0.7, 90]
+    "long_table_r_front": [1.45, 0.7, 90],
+
+    "near_long_table_l_front": [0.2, 0.2, 90],  
+    "drawer_left_place": [0.178, 0.8, -90], 
+    "drawer_top_place": [0.178, 0.8, -90], 
+    "tray_a_place": [0.2, 0.4, 90],  
+    "container_a_place": [0.2, 0.4, 90],
+    "container_b_place": [0.2, 0.4, 90] 
   },
   "routes": {
     "test": [
@@ -35,7 +42,13 @@
       "person_b",
       "home",
       "tall_table_front",
-      "long_table_r_front"
+      "long_table_r_front",
+      "near_long_table_l_front",
+      "drawer_left_place",
+      "drawer_top_place",
+      "tray_a_place",
+      "container_a_place",
+      "container_b_place"
     ]
   }
 }
