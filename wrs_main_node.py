@@ -547,7 +547,7 @@ class WrsMainController(object):
             # TODO メッセージを確認するためコメントアウトを外す
             # rospy.loginfo(waypoint)
             self.goto_pos(waypoint)
-    """
+    
     def execute_avoid_blocks(self):
         # blockを避ける (Y軸移動とX軸移動を分離)
         for i in range(10): # 10ステップのループ
@@ -584,8 +584,113 @@ class WrsMainController(object):
             # Yは(3)で移動した target_y を維持し、Xだけ目標のレーン(target_x)へ移動
             rospy.loginfo("Step %d: Moving in X-axis (Sideways) to %.2f", i, target_x)
             self.goto_pos([target_x, target_y, target_yaw])
+        
+        rospy.loginfo("Finished execute_avoid_blocks.")
+    """
+    def execute_avoid_blocks(self):
+        # blockを避ける (Y軸移動 -> X軸安全確認 -> X軸移動)
+        
+        # 10ステップのY座標境界 (select_next_waypointから移動)
+        y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
+        
+        for i in range(10): # 10ステップのループ
+            
+            # --- 1. 現在のロボットの座標を取得 ---
+            try:
+                trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
+                current_x = trans.transform.translation.x
+                current_y = trans.transform.translation.y # 現在のY座標
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+                rospy.logerr("Could not get current robot pose: %s", e)
+                rospy.logwarn("Skipping this step.")
+                continue 
+
+            # --- 2. Y軸の目標地点を決定 ---
+            target_y = y_thresholds[i+1] # i=0の時、y_thresholds[1] (1.995) になる
+
+            # --- 3. Y軸方向（前進）にのみ移動 ---
+            rospy.loginfo("Step %d: Moving in Y-axis (Forward) to %.2f", i, target_y)
+            self.goto_pos([current_x, target_y, 90])
+
+            # --- 4. Y軸移動後、X軸の安全確認 ---
+            rospy.loginfo("Step %d: Arrived at Y=%.2f. Checking X-axis safety...", i, target_y)
+            detected_objs = self.get_latest_detection()
+            bboxes = detected_objs.bboxes
+            pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
+            
+            # (X軸の安全確認と移動先を決定する新しい関数を呼び出す)
+            target_x = self.find_safe_x_lane(pos_bboxes, current_x, target_y)
+
+            # --- 5. X軸方向（横移動）にのみ移動 ---
+            rospy.loginfo("Step %d: Moving in X-axis (Sideways) to %.2f", i, target_x)
+            self.goto_pos([target_x, target_y, 90]) # Yawは常に90度
 
         rospy.loginfo("Finished execute_avoid_blocks.")
+
+    def find_safe_x_lane(self, pos_bboxes, current_x, current_y):
+        """
+        [NEW] Y軸移動後、現在のY座標でX軸（横移動）の安全なレーンをスコアで見つける
+        """
+        interval = 0.45
+        pos_xa = 1.7
+        pos_xb = pos_xa + interval
+        pos_xc = pos_xb + interval
+
+        # 各レーンの中心X座標
+        lane_centers = {
+            "xa": pos_xa,
+            "xb": pos_xb,
+            "xc": pos_xc
+        }
+        
+        # 各レーンの安全スコア（0=ブロックされている, 1=安全）
+        lane_scores = {
+            "xa": 1,
+            "xb": 1,
+            "xc": 1
+        }
+        
+        # X軸（横移動）チェック用のY座標範囲
+        # (現在のY座標の ±15cm をチェック)
+        X_CHECK_Y_MIN = current_y - 0.15
+        X_CHECK_Y_MAX = current_y + 0.15
+
+        for bbox in pos_bboxes:
+            pos_x = bbox.x
+            pos_y = bbox.y
+
+            # --- X軸（横移動）経路の安全チェック ---
+            # (current_y の ±15cm にある障害物を見る)
+            if (X_CHECK_Y_MIN < pos_y < X_CHECK_Y_MAX):
+                # この障害物は「今いるY座標」の近くにある
+                
+                # 'xa'レーンへの横移動をブロックしていないか？
+                if min(current_x, lane_centers["xa"]) < pos_x < max(current_x, lane_centers["xa"]):
+                    lane_scores["xa"] = 0 # ブロックされている
+                
+                # 'xb'レーンへの横移動をブロックしていないか？
+                if min(current_x, lane_centers["xb"]) < pos_x < max(current_x, lane_centers["xb"]):
+                    lane_scores["xb"] = 0 # ブロックされている
+                
+                # 'xc'レーンへの横移動をブロックしていないか？
+                if min(current_x, lane_centers["xc"]) < pos_x < max(current_x, lane_centers["xc"]):
+                    lane_scores["xc"] = 0 # ブロックされている
+
+        rospy.loginfo("X-Lane scores (Path blocked=0): xa=%.2f, xb=%.2f, xc=%.2f", 
+                      lane_scores["xa"], lane_scores["xb"], lane_scores["xc"])
+
+        # スコアが0（ブロック）でないレーンだけを候補にする
+        safe_lanes = {lane: center for lane, center in lane_centers.items() if lane_scores[lane] > 0}
+
+        if not safe_lanes:
+            rospy.logwarn("All X-lanes are blocked! Staying at current X=%.2f.", current_x)
+            return current_x # 安全なレーンがない場合、動かない (これが最も安全)
+        else:
+            # 安全なレーンの中で、現在地に最も近いレーンを選択する
+            best_lane_name = min(safe_lanes.keys(), key=lambda lane: abs(safe_lanes[lane] - current_x))
+            rospy.loginfo("Selected best (closest) X-lane: %s", best_lane_name)
+            return safe_lanes[best_lane_name]
+    
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
         [元に戻したロジック] xa,xb,xcの固定優先順位でウェイポイントを返す。
