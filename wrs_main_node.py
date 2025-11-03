@@ -303,15 +303,32 @@ class WrsMainController(object):
     @staticmethod
     def extract_target_obj_and_person(instruction):
         """
-        指示文から対象となる物体名称を抽出する
+        指示文("物体名 to 人" 形式)から物体と人物を抽出する
         """
-        #TODO: 関数は未完成です。引数のinstructionを利用すること
-        rospy.loginfo("[extract_target_obj_and_person] instruction:"+  instruction)
-        target_obj    = "apple"
+        rospy.loginfo("[extract_target_obj_and_person] instruction:"+ instruction)
+        # デフォルト値（解析失敗時に使用）
+        target_obj = "apple"
         target_person = "right"
+        # --- ここから解析ロジック ---
+        # " to person " という文字列で指示を分割する
+        separator = " to person "
+        if separator in instruction:
+            parts = instruction.split(separator)
+            if len(parts) == 2:
+                # 正常に "物体名" と "人物名" に分割できた場合
+                target_obj = parts[0].strip() # " to person " の前が物体名
+                target_person = parts[1].strip() # " to person " の後が人物名
+            # (例: "colored_wood_block to person right" -> "colored_wood_block" と "right")
+                rospy.loginfo(" -> Parsed object: [{}], person: [{}]".format(target_obj, target_person))
+            else:
+                # 形式が予期せず異なる場合 (例: "A to person B to person C")
+                rospy.logerr(" -> Failed to parse instruction (unexpected format). Using defaults.")
+        else:
+            # 指示に " to person " が含まれていない場合
+            rospy.logerr(" -> Failed to parse instruction (separator '{}' not found). Using defaults.".format(separator))
+        # --- 解析ここまで ---
 
         return target_obj, target_person
-
     def get_placement_info(self, label):
         """
         検出した物体のラベル(label)から、
@@ -450,7 +467,7 @@ class WrsMainController(object):
 
         self.change_pose("all_neutral")
 
-    def deliver_to_target(self, target_category, target_person_name):
+    def deliver_to_target(self, target_obj, target_person):
         """
         棚で取得したものを人に渡す。
         """
@@ -458,45 +475,41 @@ class WrsMainController(object):
         self.goto_name("shelf")
         self.change_pose("look_at_shelf")
 
-        rospy.loginfo("target_category: " + target_category + "  target_person: " + target_person_name)
+        rospy.loginfo("target_obj: " + target_obj + "  target_person: " + target_person)
         # 物体検出結果から、把持するbboxを決定
         detected_objs = self.get_latest_detection()
-        """
-        grasp_bbox = self.get_most_graspable_bboxes_by_label(detected_objs.bboxes, target_category)
+        grasp_bbox = self.get_most_graspable_bboxes_by_label(detected_objs.bboxes, target_obj)
         if grasp_bbox is None:
             rospy.logwarn("Cannot find object to grasp. task2b is aborted.")
             return
-        """
-        # 検出した全オブジェクト(bboxes)から、'target_category' (例: "food") に一致するものだけを抽出
-        category_objects = []
-        for obj in detected_objs.bboxes:
-        # LABEL_TO_CATEGORY [cite: 33-108] を使って、検出した obj.label のカテゴリを調べる
-            category = self.LABEL_TO_CATEGORY.get(obj.label, "unknown")
-            if category == target_category:
-                category_objects.append(obj)
-        if not category_objects:
-            rospy.logwarn("Cannot find any object in category '{}'.".format(target_category))
-            return
-        # 抽出したカテゴリのオブジェクト (例: food_objects) の中から、最も掴みやすいものを選ぶ
-        graspable_obj_info = self.get_most_graspable_obj(category_objects) 
-        if graspable_obj_info is None:
-            rospy.logwarn("Cannot determine object to grasp. task2b is aborted.")
-            return
-        grasp_bbox = graspable_obj_info["bbox"]
-        rospy.loginfo("Found graspable object '{}' in category '{}'".format(grasp_bbox.label, target_category))
+        rospy.loginfo("Found graspable object '{}'".format(target_obj))
+        
         # BBoxの3次元座標を取得して、その座標で把持する
         grasp_pos = self.get_grasp_coordinate(grasp_bbox)
         self.change_pose("grasp_on_shelf")
         self.grasp_from_front_side(grasp_pos)
         self.change_pose("all_neutral")
+        # --- 配達先決定の修正 (person_b 固定 [cite: 569] をやめる) ---
+        # 'target_person' (例: "right") に基づいて配達先を決定
+        delivery_location = ""
+        if target_person == "right":
+            delivery_location = "person_b" # "right" を "person_b" (座標名) にマッピング
+        elif target_person == "left":
+            delivery_location = "person_a" # "left" を "person_a" (座標名) にマッピング
+        else:
+            # デフォルト（"right"でも"left"でもない場合）
+            rospy.logwarn("Unknown person name '{}', defaulting to 'person_b'".format(target_person))
+            delivery_location = "person_b" 
 
+        rospy.loginfo("Delivering to: {} (based on '{}')".format(delivery_location, target_person))
         # target_personの前に持っていく
         self.change_pose("look_at_near_floor")
-        self.goto_name("person_b")    # TODO: 配達先が固定されているので修正
+        self.goto_name("delivery_location")    # TODO: 配達先が固定されているので修正←済
         self.change_pose("deliver_to_human")
         rospy.sleep(10.0)
         gripper.command(1)
         self.change_pose("all_neutral")
+    
     """
     def execute_avoid_blocks(self):
         # blockを避ける
@@ -549,77 +562,102 @@ class WrsMainController(object):
         rospy.loginfo("Finished execute_avoid_blocks.")
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
-        [元に戻したロジック] xa,xb,xcの固定優先順位でウェイポイントを返す。
-        (10ステップ、Yaw=90度固定は維持)
+        [改善版] 各レーンの安全性をスコア化し、最も安全なウェイポイントを返す。
+        x座標を原点に近い方からxa,xb,xcに定義する。bboxを判断基準として移動先を決定する(デフォルトは0.45間隔)
+        pos_bboxesは get_grasp_coordinate() 済みであること
         """
         interval = 0.45
         pos_xa = 1.7
         pos_xb = pos_xa + interval
         pos_xc = pos_xb + interval
 
-        # --- Yaw(向き)をすべて90度に固定 (回転防止のため) ---
+        # 各レーンの中心X座標
+        lane_centers = {
+            "xa": pos_xa,
+            "xb": pos_xb,
+            "xc": pos_xc
+        }
+        
+        # 10ステップのウェイポイント定義 (変更なし)
         waypoints = {
-            "xa": [ [pos_xa, 1.995, 90], [pos_xa, 2.14, 90], [pos_xa, 2.285, 90], [pos_xa, 2.43, 90], [pos_xa, 2.575, 90],
+           "xa": [ [pos_xa, 1.995, 90], [pos_xa, 2.14, 90], [pos_xa, 2.285, 90], [pos_xa, 2.43, 90], [pos_xa, 2.575, 90],
                     [pos_xa, 2.72, 90], [pos_xa, 2.865, 90], [pos_xa, 3.01, 90], [pos_xa, 3.155, 90], [pos_xa, 3.3, 90] ], 
             "xb": [ [pos_xb, 1.995, 90], [pos_xb, 2.14, 90], [pos_xb, 2.285, 90], [pos_xb, 2.43, 90], [pos_xb, 2.575, 90],
                     [pos_xb, 2.72, 90], [pos_xb, 2.865, 90], [pos_xb, 3.01, 90], [pos_xb, 3.155, 90], [pos_xb, 3.3, 90] ],
             "xc": [ [pos_xc, 1.995, 90], [pos_xc, 2.14, 90], [pos_xc, 2.285, 90], [pos_xc, 2.43, 90], [pos_xc, 2.575, 90],
                     [pos_xc, 2.72, 90], [pos_xc, 2.865, 90], [pos_xc, 3.01, 90], [pos_xc, 3.155, 90], [pos_xc, 3.3, 90] ]
         }
-        
-        # 10ステップのY座標境界
+        # 10ステップのY座標境界 (変更なし)
         y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
-        
+
+        # --- ここからが新しいロジック ---
+
         #現在のyと次のy
         current_y = y_thresholds[current_stp]
         next_y = y_thresholds[current_stp + 1]
         
-        # --- ここからが元のロジック (固定優先順位) ---
+        # 各レーンの安全スコア（最も近い障害物までの距離）を初期化
+        # スコアが高いほど安全
+        lane_scores = {
+            "xa": float('inf'),
+            "xb": float('inf'),
+            "xc": float('inf')
+        }
         
-        # posがxa,xb,xcのラインに近い場合は候補から削除
-        is_to_xa = True
-        is_to_xb = True
-        is_to_xc = True
+        # ロボットの車体幅の半分（安全マージン）
+        # これより近い障害物があるレーンは危険とみなす
+        ROBOT_HALF_WIDTH = 0.3 # 仮に30cmとする (実際の車幅に合わせて調整してください)
 
         for bbox in pos_bboxes:
             pos_x = bbox.x
             pos_y = bbox.y
 
-            # NOTE Hint:ｙ座標次第で無視してよいオブジェクトもある。
+            # Y座標が現在の移動範囲外の障害物は無視する
             if not (current_y < pos_y < next_y):
-                # rospy.loginfo("  -> Ignored (Out of Y-Range)")
-                continue  # 判定範囲外の障害物は無視する
+                continue
+
+            # 障害物がどのレーンにあるかを判断し、
+            # そのレーンの中心からの距離（クリアランス）を計算
             
+            # Xaレーン (X < 1.925)
             if pos_x < pos_xa + (interval/2):
-                is_to_xa = False
-                # rospy.loginfo("is_to_xa=False")
-                continue
+                dist_to_center = abs(pos_x - lane_centers["xa"])
+                lane_scores["xa"] = min(lane_scores["xa"], dist_to_center)
+                
+            # Xbレーン (1.925 <= X < 2.375)
             elif pos_x < pos_xb + (interval/2):
-                is_to_xb = False
-                # rospy.loginfo("is_to_xb=False")
-                continue
-            elif pos_x < pos_xc + (interval/2):
-                is_to_xc = False
-                # rospy.loginfo("is_to_xc=False")
-                continue
+                dist_to_center = abs(pos_x - lane_centers["xb"])
+                lane_scores["xb"] = min(lane_scores["xb"], dist_to_center)
+                
+            # Xcレーン (X >= 2.375)
+            else:
+                dist_to_center = abs(pos_x - lane_centers["xc"])
+                lane_scores["xc"] = min(lane_scores["xc"], dist_to_center)
 
-        x_line = None   # xa,xb,xcいずれかのリストが入る
-        # NOTE 優先的にxcに移動する
-        if is_to_xc:
-            x_line = waypoints["xc"]
-            rospy.loginfo("select next waypoint_xc")
-        elif is_to_xb:
-            x_line = waypoints["xb"]
-            rospy.loginfo("select next waypoint_xb")
-        elif is_to_xa:
-            x_line = waypoints["xa"]
-            rospy.loginfo("select next waypoint_xa")
+        rospy.loginfo("Lane scores (clearance): xa=%.2f, xb=%.2f, xc=%.2f", 
+                      lane_scores["xa"], lane_scores["xb"], lane_scores["xc"])
+
+        # 安全マージン(ROBOT_HALF_WIDTH)を確保できるレーンだけを候補にする
+        safe_lanes = {lane: score for lane, score in lane_scores.items() if score > ROBOT_HALF_WIDTH}
+
+        if not safe_lanes:
+            # 安全なレーンが一つもない場合
+            rospy.logwarn("No safe lane found! Defaulting to center lane (xb).")
+            # スコアに関わらず、最もマシな（スコアが最大）レーンを選ぶ
+            # (ただし、すべてinfの場合はxbを選ぶ)
+            if all(score == float('inf') for score in lane_scores.values()):
+                 best_lane_name = "xb" # 障害物が全くない場合
+            else:
+                 best_lane_name = max(lane_scores, key=lane_scores.get)
         else:
-            # a,b,cいずれにも移動できない場合
-            x_line = waypoints["xb"]
-            rospy.loginfo("select default waypoint")
+            # 安全なレーンの中で、最もスコアが高い（最も安全な）レーンを選択
+            best_lane_name = max(safe_lanes, key=safe_lanes.get)
 
+        rospy.loginfo("Selected best lane: %s", best_lane_name)
+        
+        x_line = waypoints[best_lane_name]
         return x_line[current_stp]
+        
     def execute_task1(self):
         """
         task1を実行する
@@ -631,7 +669,7 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.178, -0.1, 0.6, 0, -100, 0)
+        self.pull_out_trofast(0.178, -0.29, 0.6, -90, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
@@ -733,6 +771,7 @@ class WrsMainController(object):
         task2bを実行する
         """
         rospy.loginfo("#### start Task 2b ####")
+        """
         # 1. 探すカテゴリを "food" に指定 
         target_category = "food"
         # 2. 渡す相手を "right" に指定 (後続の関数で "person_b" にマッピング)
@@ -756,7 +795,6 @@ class WrsMainController(object):
         # 指定したオブジェクトを指定した配達先へ
         if target_obj and target_person:
             self.deliver_to_target(target_obj, target_person)
-        """
 
     def run(self):
         """
