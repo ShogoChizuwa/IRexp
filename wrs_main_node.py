@@ -506,17 +506,26 @@ class WrsMainController(object):
         waypoints = {"xa": [ [pos_xa, 2.5, 45],[pos_xa, 2.9, 45],[pos_xa, 3.3, 90] ], "xb": [ [pos_xb, 2.5, 90], [pos_xb, 2.9, 90], [pos_xb, 3.3, 90] ],
             "xc": [ [pos_xc, 2.5, 135],   [pos_xc, 2.9, 135],  [pos_xc, 3.3, 90 ]]
         }
-
+        #y座標で場合分け
+        y_thresholds = [1.85, 2.5, 2.9, 3.3]
+        #現在のyと次のy
+        current_y = y_thresholds[current_stp]
+        next_y = y_thresholds[current_stp + 1]
         # posがxa,xb,xcのラインに近い場合は候補から削除
         is_to_xa = True
         is_to_xb = True
         is_to_xc = True
+
         for bbox in pos_bboxes:
             pos_x = bbox.x
+            pos_y = bbox.y
             # TODO デバッグ時にコメントアウトを外す
             # rospy.loginfo("detected object obj.x = {:.2f}".format(bbox.x))
 
             # NOTE Hint:ｙ座標次第で無視してよいオブジェクトもある。
+            if not (current_y < pos_y < next_y):
+                # rospy.loginfo("  -> Ignored (Out of Y-Range)")
+                continue  # 判定範囲外の障害物は無視する
             if pos_x < pos_xa + (interval/2):
                 is_to_xa = False
                 # rospy.loginfo("is_to_xa=False")
