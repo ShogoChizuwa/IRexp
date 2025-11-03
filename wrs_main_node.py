@@ -436,16 +436,42 @@ class WrsMainController(object):
         rospy.sleep(5.0)
         self.change_pose("all_neutral")
 
-    def pull_out_trofast(self, x, y, z, yaw, pitch, roll):
+    def pull_out_trofast(self, x, y, z, yaw, pitch, roll, base_yaw_deg):
         # trofastの引き出しを引き出す
-        self.goto_name("stair_like_drawer")
+        
+        # 1. 台車の向き（base_yaw_deg）を取得
+        base_yaw_rad = math.radians(base_yaw_deg)
+        
+        # 2. ロボットの「手前」方向の角度を計算
+        #    （台車の向き(yaw)と、引き出す方向(+y)は、90度のオフセットがあると仮定）
+        #    ※このオフセット(math.pi / 2)は、ロボットの座標系に合わせて調整が必要な場合があります
+        pull_yaw_rad = base_yaw_rad + (math.pi / 2) 
+        
+        # 3.「手前」方向の移動ベクトル(dx, dy)を計算
+        pull_distance = self.TROFAST_Y_OFFSET # 0.2m
+        dx_hand_relative = pull_distance * math.cos(pull_yaw_rad)
+        dy_hand_relative = pull_distance * math.sin(pull_yaw_rad)
+
+        # 4. 目標座標を計算
+        #    手前 (y + offset ではなく、計算したベクトルを加算)
+        pos_before_grasp = (x + dx_hand_relative, y + dy_hand_relative, z)
+        #    掴む位置 (引数通り)
+        pos_grasp = (x, y, z)
+        
+        # --- 実行 ---
+        self.goto_name("stair_like_drawer") # 台車はここで指定された向きになる
         self.change_pose("grasp_on_table")
-        a = True  # TODO 不要な変数
+        
         gripper.command(1)
-        whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw, pitch, roll)
-        whole_body.move_end_effector_pose(x, y, z, yaw, pitch, roll)
+        # 手前へ移動
+        whole_body.move_end_effector_pose(pos_before_grasp[0], pos_before_grasp[1], pos_before_grasp[2], yaw, pitch, roll)
+        # ハンドル位置へ移動
+        whole_body.move_end_effector_pose(pos_grasp[0], pos_grasp[1], pos_grasp[2], yaw, pitch, roll)
+        # 掴む
         gripper.command(0)
-        whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw,  pitch, roll)
+        # 手前（引き出しを引く）へ移動
+        whole_body.move_end_effector_pose(pos_before_grasp[0], pos_before_grasp[1], pos_before_grasp[2], yaw, pitch, roll)
+        
         gripper.command(1)
         self.change_pose("all_neutral")
 
@@ -645,7 +671,11 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.178, -0.1, 0.55, 0, -100, 0)
+        # 1. coordinates.json から台車の向き（yaw）を取得
+        base_yaw = self.coordinates["positions"]["stair_like_drawer"][2] # 3番目の値 (-90)
+
+        # 2. 7番目の引数として base_yaw を渡す
+        self.pull_out_trofast(0.178, -0.1, 0.55, -90, -100, 0, base_yaw)
 
         total_cnt = 0
         for plc, pose in hsr_position:
