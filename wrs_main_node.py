@@ -31,85 +31,8 @@ class WrsMainController(object):
     GRASP_BACK = {"z": 0.05, "xy": 0.1}
     HAND_PALM_OFFSET = 0.05  # hand_palm_linkは指の付け根なので、把持のために少しずらす必要がある
     HAND_PALM_Z_OFFSET = 0.075
-    DETECT_CNT = 5
+    DETECT_CNT = 3
     TROFAST_Y_OFFSET = 0.2
-
-    # ルールブック(4.3節)の分類に従い、カテゴリにマッピング
-    # [cite: 453-472, 474-485, 487-491, 497, 504-515, 517-524, 481-482, 487-488]
-    LABEL_TO_CATEGORY = {
-        # 方位に基づくアイテム (Orientation) - 最高得点
-        "fork": "orientation",           # [cite: 481]
-        "spoon": "orientation",          # [cite: 482]
-        "large_marker": "orientation",     # [cite: 487]
-        "small_marker": "orientation",     # [cite: 488]
-
-        # 食品 (Food) [cite: 453-472]
-        "cracker_box": "food",
-        "sugar_box": "food",
-        "pudding_box": "food",
-        "gelatin_box": "food",
-        "potted_meat_can": "food",
-        "master_chef_can": "food",
-        "tuna_fish_can": "food",
-        "chips_can": "food",
-        "mustard_bottle": "food",
-        "tomato_soup_can": "food",
-        "banana": "food",
-        "strawberry": "food",
-        "apple": "food",
-        "lemon": "food",
-        "peach": "food",
-        "pear": "food",
-        "orange": "food",
-        "plum": "food",
-
-        # キッチン用品 (Kitchen) [cite: 474-485]
-        "windex_bottle": "kitchen",
-        "bleach_cleanser": "kitchen",
-        "sponge": "kitchen",
-        "pitcher_base": "kitchen",
-        "pitcher_lid": "kitchen",
-        "plate": "kitchen",
-        "bowl": "kitchen",
-        "spatula": "kitchen",
-        "wine_glass": "kitchen",
-        "mug": "kitchen",
-
-        # ツール (Tools) [cite: 489-491]
-        "padlock": "tools", # 'padlock' (鍵 [cite: 489])
-        "bolt_and_nut": "tools",
-        "clamp": "tools",
-
-        # 形状アイテム (Shape) [cite: 497, 504-515]
-        "credit_card_blank": "shape",
-        "mini_soccer_ball": "shape",
-        "softball": "shape",
-        "baseball": "shape",
-        "tennis_ball": "shape",
-        "racquetball": "shape",
-        "golf_ball": "shape",
-        "marble": "shape",
-        "cup": "shape",
-        "foam_brick": "shape",
-        "dice": "shape",
-        "rope": "shape",
-        "chain": "shape",
-
-        # タスク項目 (Task) [cite: 517-518]
-        "rubiks_cube": "task",
-        "colored_wood_block": "task"
-    }
-
-    # ルールブック(表2)に基づき、カテゴリを配置場所(座標名)にマッピング 
-    CATEGORY_TO_PLACE = {
-        "shape": "drawer_left_place",      # 形状アイテム -> 左引き出し 
-        "tools": "drawer_top_place",       # ツール -> 引き出し上部  (または "drawer_bottom_place")
-        "food": "tray_a_place",          # 食品 -> トレイA  (または "tray_b_place")
-        "kitchen": "container_a_place",    # キッチン用品 -> 容器 A 
-        "orientation": "container_b_place",# 方位に基づくアイテム -> コンテナB 
-        "task": "bin_a_place",           # タスク項目 -> ビンA 
-        "unknown": "bin_b_place"         # 未知の物体 -> ビンB 
-    }
 
     def __init__(self):
         # 変数の初期化
@@ -312,24 +235,6 @@ class WrsMainController(object):
 
         return target_obj, target_person
 
-    def get_placement_info(self, label):
-        """
-        検出した物体のラベル(label)から、
-        それが属するカテゴリ(category)と、
-        置くべき場所(place)の座標名を返す。
-        """
-        # 1. ラベルからカテゴリを特定
-        # 辞書にないラベルの場合は 'unknown' カテゴリとする
-        category = self.LABEL_TO_CATEGORY.get(label, "unknown")
-        
-        # 2. カテゴリから配置場所を特定 
-        # カテゴリが'unknown'の場合、CATEGORY_TO_PLACE['unknown'] (bin_b_place) が返される 
-        place = self.CATEGORY_TO_PLACE.get(category, "bin_b_place")
-        
-        # 3. カテゴリと場所を返す
-        rospy.loginfo("Label: '{}' -> Category: '{}' -> Place: '{}'".format(label, category, place))
-        return category, place
-
     def grasp_from_side(self, pos_x, pos_y, pos_z, yaw, pitch, roll, preliminary="-y"):
         """
         把持の一連の動作を行う
@@ -506,7 +411,11 @@ class WrsMainController(object):
         waypoints = {"xa": [ [pos_xa, 2.5, 45],[pos_xa, 2.9, 45],[pos_xa, 3.3, 90] ], "xb": [ [pos_xb, 2.5, 90], [pos_xb, 2.9, 90], [pos_xb, 3.3, 90] ],
             "xc": [ [pos_xc, 2.5, 135],   [pos_xc, 2.9, 135],  [pos_xc, 3.3, 90 ]]
         }
-
+        #y座標における場合分け
+        y_thresholds = [1.85, 2.5, 2.9, 3.3] 
+        
+        current_y = y_thresholds[current_stp]
+        next_y = y_thresholds[current_stp + 1]
         # posがxa,xb,xcのラインに近い場合は候補から削除
         is_to_xa = True
         is_to_xb = True
@@ -517,6 +426,9 @@ class WrsMainController(object):
             # rospy.loginfo("detected object obj.x = {:.2f}".format(bbox.x))
 
             # NOTE Hint:ｙ座標次第で無視してよいオブジェクトもある。
+            if not (current_y < pos_y < next_y):
+                # rospy.loginfo("  -> Ignored (Out of Y-Range)")
+                continue  # 判定範囲外の障害物は無視する
             if pos_x < pos_xa + (interval/2):
                 is_to_xa = False
                 # rospy.loginfo("is_to_xa=False")
@@ -554,8 +466,8 @@ class WrsMainController(object):
         """
         rospy.loginfo("#### start Task 1 ####")
         hsr_position = [
-            ("near_long_table_l", "look_at_near_floor"),
             ("tall_table", "look_at_tall_table"),
+            ("near_long_table_l", "look_at_near_floor"),
             ("long_table_r", "look_at_tall_table"),
         ]
 
@@ -563,16 +475,10 @@ class WrsMainController(object):
 
         total_cnt = 0
         for plc, pose in hsr_position:
-            # 正面経由
-            front_waypoint_name = plc + "_front"            
-            rospy.loginfo("Going to front of %s (via %s)", plc, front_waypoint_name)
-            self.goto_name(front_waypoint_name)
-            self.change_pose(pose)
-            
             for _ in range(self.DETECT_CNT):
                 # 移動と視線指示
                 self.goto_name(plc)
-                # self.change_pose(pose)
+                self.change_pose(pose)
                 gripper.command(0)
 
                 # 把持対象の有無チェック
@@ -581,7 +487,7 @@ class WrsMainController(object):
 
                 if graspable_obj is None:
                     rospy.logwarn("Cannot determine object to grasp. Grasping is aborted.")
-                    break
+                    continue
                 label = graspable_obj["label"]
                 grasp_bbox = graspable_obj["bbox"]
                 # TODO ラベル名を確認するためにコメントアウトを外す
@@ -593,44 +499,12 @@ class WrsMainController(object):
                 self.exec_graspable_method(grasp_pos, label)
                 self.change_pose("all_neutral")
 
-                # 1. ラベルからカテゴリと配置場所を取得
-                category, place_name = self.get_placement_info(label)
-                place_name = "bin_a"
-
-                # 2. 常に "put_in_bin" の姿勢を使う（テスト用）
-                into_pose = "put_in_bin" 
-
-                # 3. 取得した配置場所(place_name)と、固定の姿勢(into_pose)で物体を置く
-                self.put_in_place(place_name, into_pose)
-                """
-                # 1. ラベルからカテゴリと配置場所を取得
-                category, place_name = self.get_placement_info(label)
-
-                # 2. カテゴリに応じた投入姿勢を決定
-                # (これは仮の実装です。場所ごとに適切な姿勢を指定する必要があります)
-                if place_name in ["bin_a_place", "bin_b_place"]:
-                    into_pose = "put_in_bin"
-                elif place_name in ["tray_a_place", "tray_b_place", "container_a_place", "container_b_place"]:
-                    # (例: "put_on_tray"という姿勢をposes.jsonで定義)
-                    into_pose = "put_on_tray" 
-                elif place_name in ["drawer_left_place", "drawer_top_place", "drawer_bottom_place"]:
-                    # (例: "put_in_drawer"という姿勢をposes.jsonで定義)
-                    into_pose = "put_in_drawer" 
-                else:
-                    into_pose = "put_in_bin" # デフォルト
-
-                # 3. 取得した配置場所(place_name)と姿勢(into_pose)を使って物体を置く
-                # (注意: 'put_in_bin' 以外は、対応する場所と姿勢を別途定義する必要があります)
-                self.put_in_place(place_name, into_pose)
                 # binに入れる
-                """
-                """
                 if total_cnt % 2 == 0:  
                     self.put_in_place("bin_a_place", "put_in_bin")
                 else:  
                     self.put_in_place("bin_b_place", "put_in_bin")
                 total_cnt += 1
-                """
 
     def execute_task2a(self):
         """
