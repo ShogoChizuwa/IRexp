@@ -497,7 +497,7 @@ class WrsMainController(object):
         rospy.sleep(10.0)
         gripper.command(1)
         self.change_pose("all_neutral")
-
+    """
     def execute_avoid_blocks(self):
         # blockを避ける
         for i in range(10):
@@ -508,7 +508,45 @@ class WrsMainController(object):
             # TODO メッセージを確認するためコメントアウトを外す
             # rospy.loginfo(waypoint)
             self.goto_pos(waypoint)
-    
+    """
+    def execute_avoid_blocks(self):
+        # blockを避ける (Y軸移動とX軸移動を分離)
+        for i in range(10): # 10ステップのループ
+            
+            # --- 1. 障害物と次のウェイポイントを決定 ---
+            detected_objs = self.get_latest_detection()
+            bboxes = detected_objs.bboxes
+            pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
+            
+            # 10ステップ版の select_next_waypoint が呼ばれる
+            waypoint = self.select_next_waypoint(i, pos_bboxes)
+            
+            target_x = waypoint[0]
+            target_y = waypoint[1]
+            target_yaw = waypoint[2]
+
+            # --- 2. 現在のロボットの座標を取得 ---
+            try:
+                # "map" 座標系における "base_link" の現在の位置を取得
+                trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
+                current_x = trans.transform.translation.x
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+                rospy.logerr("Could not get current robot pose: %s", e)
+                rospy.logwarn("Skipping this step.")
+                continue # 現在地が取れないため、このステップはスキップ
+
+            # --- 3. Y軸方向（前進）にのみ移動 ---
+            # Xは現在の位置(current_x)を維持し、Yだけ次のステップ(target_y)へ進む
+            # 向きは常に前(90度)を向く
+            rospy.loginfo("Step %d: Moving in Y-axis (Forward) to %.2f", i, target_y)
+            self.goto_pos([current_x, target_y, 90])
+
+            # --- 4. X軸方向（横移動）にのみ移動 ---
+            # Yは(3)で移動した target_y を維持し、Xだけ目標のレーン(target_x)へ移動
+            rospy.loginfo("Step %d: Moving in X-axis (Sideways) to %.2f", i, target_x)
+            self.goto_pos([target_x, target_y, target_yaw])
+
+        rospy.loginfo("Finished execute_avoid_blocks.")
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
         [改善版] 各レーンの安全性をスコア化し、最も安全なウェイポイントを返す。
