@@ -31,7 +31,7 @@ class WrsMainController(object):
     GRASP_BACK = {"z": 0.05, "xy": 0.1}
     HAND_PALM_OFFSET = 0.05  # hand_palm_linkは指の付け根なので、把持のために少しずらす必要がある
     HAND_PALM_Z_OFFSET = 0.075
-    DETECT_CNT = 3
+    DETECT_CNT = 5
     TROFAST_Y_OFFSET = 0.2
 
     def __init__(self):
@@ -459,8 +459,8 @@ class WrsMainController(object):
         """
         rospy.loginfo("#### start Task 1 ####")
         hsr_position = [
-            ("tall_table", "look_at_tall_table"),
             ("near_long_table_l", "look_at_near_floor"),
+            ("tall_table", "look_at_tall_table"),
             ("long_table_r", "look_at_tall_table"),
         ]
 
