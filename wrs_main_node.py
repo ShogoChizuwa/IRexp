@@ -504,7 +504,7 @@ class WrsMainController(object):
         rospy.loginfo("Delivering to: {} (based on '{}')".format(delivery_location, target_person))
         # target_personの前に持っていく
         self.change_pose("look_at_near_floor")
-        self.goto_name("delivery_location")    # TODO: 配達先が固定されているので修正←済
+        self.goto_name(delivery_location)    # TODO: 配達先が固定されているので修正←済
         self.change_pose("deliver_to_human")
         rospy.sleep(10.0)
         gripper.command(1)
@@ -858,16 +858,6 @@ class WrsMainController(object):
         task2bを実行する
         """
         rospy.loginfo("#### start Task 2b ####")
-        """
-        # 1. 探すカテゴリを "food" に指定 
-        target_category = "food"
-        # 2. 渡す相手を "right" に指定 (後続の関数で "person_b" にマッピング)
-        target_person_name = "right"
-
-        # 指定したカテゴリのオブジェクトを指定した配達先へ
-        if target_category and target_person_name:
-            self.deliver_to_target(target_category, target_person_name)
-        """
         # 命令文を取得
         if self.instruction_list:
             latest_instruction = self.instruction_list[-1]
