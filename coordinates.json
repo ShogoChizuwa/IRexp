@@ -21,7 +21,7 @@
     "near_long_table_l_front": [1.2, 0.2, 90],
     "drawer_left_place": [0.82, 0.0, -90],
     "drawer_top_place": [0.48, 0.8, -90],
-    "tray_a_place": [2.1, 0.0, -90],
+    "tray_a_place": [2.1, -0.1, -90],
     "container_a_place": [1.4, 0.0, -90],
     "container_b_place": [1.9, 0.0, -90]
   },
