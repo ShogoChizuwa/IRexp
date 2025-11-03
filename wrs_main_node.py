@@ -490,7 +490,7 @@ class WrsMainController(object):
             # TODO メッセージを確認するためコメントアウトを外す
             # rospy.loginfo(waypoint)
             self.goto_pos(waypoint)
-    """
+
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
         waypoints から近い場所にあるものを除外し、最適なwaypointを返す。
@@ -560,104 +560,6 @@ class WrsMainController(object):
             x_line = waypoints["xb"]
             rospy.loginfo("select default waypoint")
 
-        return x_line[current_stp]
-    """
-    def select_next_waypoint(self, current_stp, pos_bboxes):
-        """
-        [改善版] 各レーンの安全性をスコア化し、最も安全なウェイポイントを返す。
-        x座標を原点に近い方からxa,xb,xcに定義する。bboxを判断基準として移動先を決定する(デフォルトは0.45間隔)
-        pos_bboxesは get_grasp_coordinate() 済みであること
-        """
-        interval = 0.45
-        pos_xa = 1.7
-        pos_xb = pos_xa + interval
-        pos_xc = pos_xb + interval
-
-        # 各レーンの中心X座標
-        lane_centers = {
-            "xa": pos_xa,
-            "xb": pos_xb,
-            "xc": pos_xc
-        }
-        
-        # 10ステップのウェイポイント定義 (変更なし)
-        waypoints = {
-            "xa": [ [pos_xa, 1.995, 45], [pos_xa, 2.14, 45], [pos_xa, 2.285, 45], [pos_xa, 2.43, 45], [pos_xa, 2.575, 45],
-                    [pos_xa, 2.72, 90], [pos_xa, 2.865, 90], [pos_xa, 3.01, 90], [pos_xa, 3.155, 90], [pos_xa, 3.3, 90] ], 
-            "xb": [ [pos_xb, 1.995, 90], [pos_xb, 2.14, 90], [pos_xb, 2.285, 90], [pos_xb, 2.43, 90], [pos_xb, 2.575, 90],
-                    [pos_xb, 2.72, 90], [pos_xb, 2.865, 90], [pos_xb, 3.01, 90], [pos_xb, 3.155, 90], [pos_xb, 3.3, 90] ],
-            "xc": [ [pos_xc, 1.995, 135], [pos_xc, 2.14, 135], [pos_xc, 2.285, 135], [pos_xc, 2.43, 135], [pos_xc, 2.575, 135],
-                    [pos_xc, 2.72, 90], [pos_xc, 2.865, 90], [pos_xc, 3.01, 90], [pos_xc, 3.155, 90], [pos_xc, 3.3, 90] ]
-        }
-        # 10ステップのY座標境界 (変更なし)
-        y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
-
-        # --- ここからが新しいロジック ---
-
-        #現在のyと次のy
-        current_y = y_thresholds[current_stp]
-        next_y = y_thresholds[current_stp + 1]
-        
-        # 各レーンの安全スコア（最も近い障害物までの距離）を初期化
-        # スコアが高いほど安全
-        lane_scores = {
-            "xa": float('inf'),
-            "xb": float('inf'),
-            "xc": float('inf')
-        }
-        
-        # ロボットの車体幅の半分（安全マージン）
-        # これより近い障害物があるレーンは危険とみなす
-        ROBOT_HALF_WIDTH = 0.3 # 仮に30cmとする (実際の車幅に合わせて調整してください)
-
-        for bbox in pos_bboxes:
-            pos_x = bbox.x
-            pos_y = bbox.y
-
-            # Y座標が現在の移動範囲外の障害物は無視する
-            if not (current_y < pos_y < next_y):
-                continue
-
-            # 障害物がどのレーンにあるかを判断し、
-            # そのレーンの中心からの距離（クリアランス）を計算
-            
-            # Xaレーン (X < 1.925)
-            if pos_x < pos_xa + (interval/2):
-                dist_to_center = abs(pos_x - lane_centers["xa"])
-                lane_scores["xa"] = min(lane_scores["xa"], dist_to_center)
-                
-            # Xbレーン (1.925 <= X < 2.375)
-            elif pos_x < pos_xb + (interval/2):
-                dist_to_center = abs(pos_x - lane_centers["xb"])
-                lane_scores["xb"] = min(lane_scores["xb"], dist_to_center)
-                
-            # Xcレーン (X >= 2.375)
-            else:
-                dist_to_center = abs(pos_x - lane_centers["xc"])
-                lane_scores["xc"] = min(lane_scores["xc"], dist_to_center)
-
-        rospy.loginfo("Lane scores (clearance): xa=%.2f, xb=%.2f, xc=%.2f", 
-                      lane_scores["xa"], lane_scores["xb"], lane_scores["xc"])
-
-        # 安全マージン(ROBOT_HALF_WIDTH)を確保できるレーンだけを候補にする
-        safe_lanes = {lane: score for lane, score in lane_scores.items() if score > ROBOT_HALF_WIDTH}
-
-        if not safe_lanes:
-            # 安全なレーンが一つもない場合
-            rospy.logwarn("No safe lane found! Defaulting to center lane (xb).")
-            # スコアに関わらず、最もマシな（スコアが最大）レーンを選ぶ
-            # (ただし、すべてinfの場合はxbを選ぶ)
-            if all(score == float('inf') for score in lane_scores.values()):
-                 best_lane_name = "xb" # 障害物が全くない場合
-            else:
-                 best_lane_name = max(lane_scores, key=lane_scores.get)
-        else:
-            # 安全なレーンの中で、最もスコアが高い（最も安全な）レーンを選択
-            best_lane_name = max(safe_lanes, key=safe_lanes.get)
-
-        rospy.loginfo("Selected best lane: %s", best_lane_name)
-        
-        x_line = waypoints[best_lane_name]
         return x_line[current_stp]
         
     def execute_task1(self):
