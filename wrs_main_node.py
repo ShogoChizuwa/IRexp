@@ -656,7 +656,7 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.178, -0.29, 0.6, -90, -100, 0)
+        self.pull_out_trofast(0.178, -0.1, 0.6, -90, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
