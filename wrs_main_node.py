@@ -482,7 +482,7 @@ class WrsMainController(object):
 
     def execute_avoid_blocks(self):
         # blockを避ける
-        for i in range(6):
+        for i in range(10):
             detected_objs = self.get_latest_detection()
             bboxes = detected_objs.bboxes
             pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
@@ -503,12 +503,16 @@ class WrsMainController(object):
         pos_xc = pos_xb + interval
 
         # xa配列はcurrent_stpに関係している
-        waypoints = {"xa": [ [pos_xa, 2.1, 45], [pos_xa, 2.35, 45], [pos_xa, 2.6, 90], [pos_xa, 2.85, 90], [pos_xa, 3.1, 90], [pos_xa, 3.3, 90] ], 
-            "xb": [ [pos_xb, 2.1, 90], [pos_xb, 2.35, 90], [pos_xb, 2.6, 90], [pos_xb, 2.85, 90], [pos_xb, 3.1, 90], [pos_xb, 3.3, 90] ],
-            "xc": [ [pos_xc, 2.1, 135], [pos_xc, 2.35, 135], [pos_xc, 2.6, 135], [pos_xc, 2.85, 90], [pos_xc, 3.1, 90], [pos_xc, 3.3, 90] ]
+        waypoints = {
+            "xa": [ [pos_xa, 1.995, 45], [pos_xa, 2.14, 45], [pos_xa, 2.285, 45], [pos_xa, 2.43, 45], [pos_xa, 2.575, 45],
+                    [pos_xa, 2.72, 90], [pos_xa, 2.865, 90], [pos_xa, 3.01, 90], [pos_xa, 3.155, 90], [pos_xa, 3.3, 90] ], 
+            "xb": [ [pos_xb, 1.995, 90], [pos_xb, 2.14, 90], [pos_xb, 2.285, 90], [pos_xb, 2.43, 90], [pos_xb, 2.575, 90],
+                    [pos_xb, 2.72, 90], [pos_xb, 2.865, 90], [pos_xb, 3.01, 90], [pos_xb, 3.155, 90], [pos_xb, 3.3, 90] ],
+            "xc": [ [pos_xc, 1.995, 135], [pos_xc, 2.14, 135], [pos_xc, 2.285, 135], [pos_xc, 2.43, 135], [pos_xc, 2.575, 135],
+                    [pos_xc, 2.72, 90], [pos_xc, 2.865, 90], [pos_xc, 3.01, 90], [pos_xc, 3.155, 90], [pos_xc, 3.3, 90] ]
         }
         #y座標で場合分け
-        y_thresholds = [1.85, 2.1, 2.35, 2.6, 2.85, 3.1, 3.3]
+        y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
         #現在のyと次のy
         current_y = y_thresholds[current_stp]
         next_y = y_thresholds[current_stp + 1]
