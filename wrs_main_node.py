@@ -482,7 +482,7 @@ class WrsMainController(object):
 
     def execute_avoid_blocks(self):
         # blockを避ける
-        for i in range(3):
+        for i in range(6):
             detected_objs = self.get_latest_detection()
             bboxes = detected_objs.bboxes
             pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
@@ -503,11 +503,12 @@ class WrsMainController(object):
         pos_xc = pos_xb + interval
 
         # xa配列はcurrent_stpに関係している
-        waypoints = {"xa": [ [pos_xa, 2.5, 45],[pos_xa, 2.9, 45],[pos_xa, 3.3, 90] ], "xb": [ [pos_xb, 2.5, 90], [pos_xb, 2.9, 90], [pos_xb, 3.3, 90] ],
-            "xc": [ [pos_xc, 2.5, 135],   [pos_xc, 2.9, 135],  [pos_xc, 3.3, 90 ]]
+        waypoints = {"xa": [ [pos_xa, 2.1, 45], [pos_xa, 2.35, 45], [pos_xa, 2.6, 90], [pos_xa, 2.85, 90], [pos_xa, 3.1, 90], [pos_xa, 3.3, 90] ], 
+            "xb": [ [pos_xb, 2.1, 90], [pos_xb, 2.35, 90], [pos_xb, 2.6, 90], [pos_xb, 2.85, 90], [pos_xb, 3.1, 90], [pos_xb, 3.3, 90] ],
+            "xc": [ [pos_xc, 2.1, 135], [pos_xc, 2.35, 135], [pos_xc, 2.6, 135], [pos_xc, 2.85, 90], [pos_xc, 3.1, 90], [pos_xc, 3.3, 90] ]
         }
         #y座標で場合分け
-        y_thresholds = [1.85, 2.5, 2.9, 3.3]
+        y_thresholds = [1.85, 2.1, 2.35, 2.6, 2.85, 3.1, 3.3]
         #現在のyと次のy
         current_y = y_thresholds[current_stp]
         next_y = y_thresholds[current_stp + 1]
