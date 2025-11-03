@@ -31,7 +31,7 @@ class WrsMainController(object):
     GRASP_BACK = {"z": 0.05, "xy": 0.1}
     HAND_PALM_OFFSET = 0.05  # hand_palm_linkは指の付け根なので、把持のために少しずらす必要がある
     HAND_PALM_Z_OFFSET = 0.075
-    DETECT_CNT = 1
+    DETECT_CNT = 3
     TROFAST_Y_OFFSET = 0.2
 
     def __init__(self):
@@ -468,7 +468,7 @@ class WrsMainController(object):
 
         total_cnt = 0
         for plc, pose in hsr_position:
-            for _ in range(self.DETECT_INT):
+            for _ in range(self.DETECT_CNT):
                 # 移動と視線指示
                 self.goto_name(plc)
                 self.change_pose(pose)
