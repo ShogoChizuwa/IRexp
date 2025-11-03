@@ -681,7 +681,7 @@ class WrsMainController(object):
         rospy.loginfo("Finished execute_avoid_blocks.")
     """
     def execute_avoid_blocks(self):
-        # blockを避ける (Y軸移動 -> X軸安全確認 -> X軸移動)
+        # blockを避ける (X軸移動を先に実行し、安全を確保してからY軸で前進)
         
         # 10ステップのY座標境界 (select_next_waypointから移動)
         y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
@@ -698,32 +698,31 @@ class WrsMainController(object):
                 rospy.logwarn("Skipping this step.")
                 continue 
 
-            # --- 2. Y軸の目標地点を決定 ---
-            target_y = y_thresholds[i+1] # i=0の時、y_thresholds[1] (1.995) になる
-
-            # --- 3. Y軸方向（前進）にのみ移動 ---
-            rospy.loginfo("Step %d: Moving in Y-axis (Forward) to %.2f", i, target_y)
-            self.goto_pos([current_x, target_y, 90])
-
-            # --- 4. Y軸移動後、X軸の安全確認 ---
-            rospy.loginfo("Step %d: Arrived at Y=%.2f. Checking X-axis safety...", i, target_y)
+            # --- 2. Y軸移動後、X軸の安全確認 ---
             detected_objs = self.get_latest_detection()
             bboxes = detected_objs.bboxes
             pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
             
-            # (X軸の安全確認と移動先を決定する新しい関数を呼び出す)
-            target_x = self.find_safe_x_lane(pos_bboxes, current_x, target_y)
+            # (X軸の安全確認と移動先を決定する関数を呼び出す)
+            target_x = self.find_safe_x_lane(pos_bboxes, current_x, current_y)
 
-            # --- 5. X軸方向（横移動）にのみ移動 ---
+            # --- 3. X軸方向（横移動）に先に移動 ---
+            # Yは現在の位置(current_y)を維持し、Xだけ目標のレーン(target_x)へ移動
             rospy.loginfo("Step %d: Moving in X-axis (Sideways) to %.2f", i, target_x)
-            self.goto_pos([target_x, target_y, 90]) # Yawは常に90度
+            self.goto_pos([target_x, current_y, 90]) # Yawは常に90度
+
+            # --- 4. Y軸方向（前進）に次に移動 ---
+            # Xは(3)で移動した target_x を維持し、Yだけ次のステップ(target_y)へ進む
+            target_y = y_thresholds[i+1] # i=0の時、y_thresholds[1] (1.995) になる
+            rospy.loginfo("Step %d: Moving in Y-axis (Forward) to %.2f", i, target_y)
+            self.goto_pos([target_x, target_y, 90])
 
         rospy.loginfo("Finished execute_avoid_blocks.")
 
     def find_safe_x_lane(self, pos_bboxes, current_x, current_y):
         """
-        [v4] Y軸移動後、現在のY座標で安全なXレーンを見つける。
-        安全なレーンが複数ある場合、[最も遠い]ものを選択する。
+        [v5] Y軸移動前(現在地)に、X軸の安全なレーンを見つける。
+        安全なレーンが複数ある場合、[最も近い]ものを選択する。
         """
         interval = 0.45
         pos_xa = 1.7
@@ -785,11 +784,10 @@ class WrsMainController(object):
             return current_x # 安全なレーンがない場合、動かない (これが最も安全)
         else:
             # --- ★ロジック変更点 ---
-            # 安全なレーンの中で、[現在地に最も遠い]レーンを選択する
-            best_lane_name = max(safe_lanes.keys(), key=lambda lane: abs(safe_lanes[lane] - current_x))
-            rospy.loginfo("Selected best (farthest safe) X-lane: %s", best_lane_name)
+            # 安全なレーンの中で、[現在地に最も近い]レーンを選択する
+            best_lane_name = min(safe_lanes.keys(), key=lambda lane: abs(safe_lanes[lane] - current_x))
+            rospy.loginfo("Selected best (closest safe) X-lane: %s", best_lane_name)
             return safe_lanes[best_lane_name]
-            
     def select_next_waypoint(self, current_stp, pos_bboxes):
         """
         [元に戻したロジック] xa,xb,xcの固定優先順位でウェイポイントを返す。
