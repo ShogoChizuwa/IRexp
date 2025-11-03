@@ -687,7 +687,7 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        # self.pull_out_trofast(0.178, 0.8, 0.75, -90, -100, 0)
+        self.pull_out_trofast(0.178, -0.29, 0.75, -90, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
@@ -709,8 +709,7 @@ class WrsMainController(object):
                 floor_objects_info = []
 
                 # Y座標（奥行き）のしきい値
-                # exec_graspable_method の graspable_y (1.85) と同じ値
-                GRASPABLE_Y_THRESHOLD = 1.85 
+                GRASPABLE_Y_THRESHOLD = 2.0
 
                 for obj in detected_objs:
                     # 物体の3D座標を取得
@@ -768,35 +767,6 @@ class WrsMainController(object):
 
                 # 3. 取得した配置場所(place_name)と、固定の姿勢(into_pose)で物体を置く
                 self.put_in_place(place_name, into_pose)
-                """
-                # 1. ラベルからカテゴリと配置場所を取得
-                category, place_name = self.get_placement_info(label)
-
-                # 2. カテゴリに応じた投入姿勢を決定
-                # (これは仮の実装です。場所ごとに適切な姿勢を指定する必要があります)
-                if place_name in ["bin_a_place", "bin_b_place"]:
-                    into_pose = "put_in_bin"
-                elif place_name in ["tray_a_place", "tray_b_place", "container_a_place", "container_b_place"]:
-                    # (例: "put_on_tray"という姿勢をposes.jsonで定義)
-                    into_pose = "put_on_tray" 
-                elif place_name in ["drawer_left_place", "drawer_top_place", "drawer_bottom_place"]:
-                    # (例: "put_in_drawer"という姿勢をposes.jsonで定義)
-                    into_pose = "put_in_drawer" 
-                else:
-                    into_pose = "put_in_bin" # デフォルト
-
-                # 3. 取得した配置場所(place_name)と姿勢(into_pose)を使って物体を置く
-                # (注意: 'put_in_bin' 以外は、対応する場所と姿勢を別途定義する必要があります)
-                self.put_in_place(place_name, into_pose)
-                # binに入れる
-                """
-                """
-                if total_cnt % 2 == 0:  
-                    self.put_in_place("bin_a_place", "put_in_bin")
-                else:  
-                    self.put_in_place("bin_b_place", "put_in_bin")
-                total_cnt += 1
-                """
 
     def execute_task2a(self):
         """
@@ -851,7 +821,7 @@ class WrsMainController(object):
         self.change_pose("all_neutral")
         self.execute_task1()
         self.execute_task2a()
-        #self.execute_task2b()
+        self.execute_task2b()
 
 
 def main():
