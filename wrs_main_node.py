@@ -914,6 +914,26 @@ class WrsMainController(object):
         self.change_pose("all_neutral")
         self.execute_task1()
         self.execute_task2a()
+        rospy.loginfo("#### Task1 & 2a Finished. Waiting for Task2b instructions... ####")
+        # --- 2. Task2b の指示待ちループ ---
+        # 最後に処理した指示の「数」を記録しておく変数
+        # （instruction_cb [cite: 164-169] が呼ばれると self.instruction_list [cite: 130] の数が増える）
+        last_instruction_count = len(self.instruction_list)
+        # 1秒間に1回チェックするループ
+        rate = rospy.Rate(1) 
+        while not rospy.is_shutdown():
+            # 現在の指示の総数が、最後に処理した数より多いか確認
+            if len(self.instruction_list) > last_instruction_count:
+                    # --- 新しい指示が来た場合の処理 ---
+                    rospy.loginfo("New instruction detected. Executing Task2b.")
+                    # Task2bを実行
+                    # (execute_task2b [cite: 928-955] はリストの最後[-1] [cite: 943] の指示を取得します)
+                    self.execute_task2b()
+                # 処理済みの指示カウントを、現在のリストの総数に更新
+                    last_instruction_count = len(self.instruction_list)
+                    rospy.loginfo("#### Task2b Finished. Waiting for next instruction... ####")
+            # ループの待機
+            rate.sleep()
         self.execute_task2b()
 
 
