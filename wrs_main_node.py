@@ -604,7 +604,7 @@ class WrsMainController(object):
 
                 # 1. ラベルからカテゴリと配置場所を取得
                 category, place_name = self.get_placement_info(label)
-                place_name = "bin_a"
+                #place_name = "bin_a"
 
                 # 2. 常に "put_in_bin" の姿勢を使う（テスト用）
                 into_pose = "put_in_bin" 
