@@ -581,7 +581,7 @@ class WrsMainController(object):
 
                 if graspable_obj is None:
                     rospy.logwarn("Cannot determine object to grasp. Grasping is aborted.")
-                    continue
+                    break
                 label = graspable_obj["label"]
                 grasp_bbox = graspable_obj["bbox"]
                 # TODO ラベル名を確認するためにコメントアウトを外す
@@ -595,6 +595,7 @@ class WrsMainController(object):
 
                 # 1. ラベルからカテゴリと配置場所を取得
                 category, place_name = self.get_placement_info(label)
+                place_name = "bin_a"
 
                 # 2. 常に "put_in_bin" の姿勢を使う（テスト用）
                 into_pose = "put_in_bin" 

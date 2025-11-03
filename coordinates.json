@@ -2,7 +2,7 @@
   "positions": {
     "tall_table": [-0.02, 1.0, 95],
     "long_table_r": [1.45, 1.0, 90],
-    "near_long_table_l": [0.2, 0.4, 90],
+    "near_long_table_l": [1.45, 0.4, 90],
     "drawer": [0.35, 0.2, -90],
     "stair_like_drawer": [0.178, 0.8, -90],
     "bin_a": [2.4, 0.0, -90],
@@ -18,12 +18,12 @@
     "tall_table_front": [-0.02, 0.7, 95],
     "long_table_r_front": [1.45, 0.7, 90],
 
-    "near_long_table_l_front": [0.2, 0.2, 90],  
-    "drawer_left_place": [0.178, 0.8, -90], 
-    "drawer_top_place": [0.178, 0.8, -90], 
-    "tray_a_place": [0.2, 0.4, 90],  
-    "container_a_place": [0.2, 0.4, 90],
-    "container_b_place": [0.2, 0.4, 90] 
+    "near_long_table_l_front": [1.45, 0.2, 90],
+    "drawer_left_place": [0.178, 0.8, -90],
+    "drawer_top_place": [0.178, 0.8, -90],
+    "tray_a_place": [0.2, 0.4, -90],
+    "container_a_place": [0.2, 0.4, -90],
+    "container_b_place": [0.2, 0.4, -90]
   },
   "routes": {
     "test": [
