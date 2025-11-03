@@ -675,7 +675,8 @@ class WrsMainController(object):
         target_obj, target_person = self.extract_target_obj_and_person(latest_instruction)
 
         # 指定したオブジェクトを指定した配達先へ
-        if target_obj and target_person:            self.deliver_to_target(target_obj, target_person)
+        if target_obj and target_person:
+            self.deliver_to_target(target_obj, target_person)
 
     def run(self):
         """
@@ -683,7 +684,7 @@ class WrsMainController(object):
         """
         self.change_pose("all_neutral")
         self.execute_task1()
-        #self.execute_task2a()
+        self.execute_task2a()
         #self.execute_task2b()
 
 
