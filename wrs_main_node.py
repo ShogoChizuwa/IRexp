@@ -437,17 +437,136 @@ class WrsMainController(object):
         self.change_pose("all_neutral")
 
     def pull_out_trofast(self, x, y, z, yaw, pitch, roll):
-        # trofastの引き出しを引き出す
-        self.goto_name("stair_like_drawer")
-        self.change_pose("grasp_on_table")
-        a = True  # TODO 不要な変数
-        gripper.command(1)
-        whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw, pitch, roll)
-        whole_body.move_end_effector_pose(x, y, z, yaw, pitch, roll)
-        gripper.command(0)
-        whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw,  pitch, roll)
-        gripper.command(1)
-        self.change_pose("all_neutral")
+        """
+        Trofast の引き出しを引き出す（姿勢は固定し、位置だけ相対的に移動する実装）
+        - 重要: 引き出しを引くときにロボットが回転してしまう問題を防ぐため、
+        明示的な yaw/pitch/roll の数値を直接使わず、**現在のエンドエフェクタ姿勢を取得してその姿勢を固定**したまま
+        位置だけを変える（相対移動的）実装にする。
+        """
+        try:
+            # 初期の準備ポーズ（既存の呼び出しを維持）
+            self.goto_name("stair_like_drawer")
+            self.change_pose("grasp_on_table")
+
+            # グリッパを開ける（数値は既存コードの通り）
+            gripper.command(1)
+
+            # -- 現在のエンドエフェクタ姿勢（位置＋オイラー角）を取得する（複数の可能性に対応）
+            current_pose = None
+            # try several commonly used getter names as a fallback
+            getters = [
+                getattr(whole_body, "get_current_pose", None),
+                getattr(whole_body, "get_end_effector_pose", None),
+                getattr(whole_body, "get_pose", None),
+                getattr(whole_body, "get_current_end_effector_pose", None),
+            ]
+            for g in getters:
+                if callable(g):
+                    try:
+                        p = g()
+                        # 想定される返り値のパターンに対応
+                        # - 辞書: {'x':..,'y':..,'z':..,'yaw':..,'pitch':..,'roll':..}
+                        # - オブジェクト/tuple: (x,y,z,yaw,pitch,roll) または オブジェクトに属性 x,y,z,yaw...
+                        if isinstance(p, dict):
+                            current_pose = {
+                                "x": float(p.get("x", 0.0)),
+                                "y": float(p.get("y", 0.0)),
+                                "z": float(p.get("z", 0.0)),
+                                "yaw": float(p.get("yaw", yaw)),
+                                "pitch": float(p.get("pitch", pitch)),
+                                "roll": float(p.get("roll", roll)),
+                            }
+                            break
+                        # tuple/list
+                        if isinstance(p, (list, tuple)) and len(p) >= 6:
+                            current_pose = {
+                                "x": float(p[0]),
+                                "y": float(p[1]),
+                                "z": float(p[2]),
+                                "yaw": float(p[3]),
+                                "pitch": float(p[4]),
+                                "roll": float(p[5]),
+                            }
+                            break
+                        # object with attributes
+                        for attr in ("x", "y", "z", "yaw", "pitch", "roll"):
+                            if not hasattr(p, attr):
+                                break
+                        else:
+                            current_pose = {
+                                "x": float(p.x),
+                                "y": float(p.y),
+                                "z": float(p.z),
+                                "yaw": float(getattr(p, "yaw", yaw)),
+                                "pitch": float(getattr(p, "pitch", pitch)),
+                                "roll": float(getattr(p, "roll", roll)),
+                            }
+                            break
+                    except Exception:
+                        # getter failed, try next
+                        traceback.print_exc()
+                        continue
+
+            # 最後のフォールバック：渡された yaw,pitch,roll を使い、位置は引数の x,y,z
+            if current_pose is None:
+                rospy.logwarn("whole_body の現在姿勢が取得できなかったため、渡された yaw/pitch/roll を姿勢として使用します。")
+                current_pose = {"x": float(x), "y": float(y), "z": float(z), "yaw": float(yaw), "pitch": float(pitch), "roll": float(roll)}
+
+            # ① 接近（オフセット位置）：引き出しの前で把持位置に近づく
+            #    元コードでは (x, y + offset, z) に移動していたのでそれを踏襲。ただし yaw/pitch/roll は current_pose のものを使う。
+            try:
+                whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z,
+                                                current_pose["yaw"],
+                                                current_pose["pitch"],
+                                                current_pose["roll"])
+            except Exception:
+                # もし move_end_effector_pose が例外を出す場合は位置のみを移動する別APIを試す（存在すれば）
+                try:
+                    if hasattr(whole_body, "move_end_effector_position"):
+                        whole_body.move_end_effector_position(x, y + self.TROFAST_Y_OFFSET, z)
+                    else:
+                        raise
+                except Exception:
+                    rospy.logerr("接近移動に失敗しました（move_end_effector_pose / move_end_effector_position いずれも使用不可）。")
+                    raise
+
+            rospy.sleep(0.2)  # 少し待つ（姿勢安定用）
+
+            # ② 把持位置へ移動（実際に把持する位置）
+            #     ここでも姿勢は current_pose に固定 → 回転が起きない
+            whole_body.move_end_effector_pose(x, y, z,
+                                            current_pose["yaw"],
+                                            current_pose["pitch"],
+                                            current_pose["roll"])
+            rospy.sleep(0.05)
+
+            # ③ 把持（グリッパを閉じる）
+            gripper.command(0)
+            rospy.sleep(0.08)
+
+            # ④ 引き出す（**位置だけ**を元のオフセット側に戻す／相対的に後退する）
+            #     ここが重要：姿勢は current_pose のまま固定し、位置だけ y+offset に動かす
+            whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z,
+                                            current_pose["yaw"],
+                                            current_pose["pitch"],
+                                            current_pose["roll"])
+            rospy.sleep(0.2)
+
+            # ⑤ 必要なら把持解除（元コードではここで再度 gripper.command(1) をしていた）
+            gripper.command(1)
+
+            # ⑥ 元の中立姿勢へ戻す
+            self.change_pose("all_neutral")
+
+        except Exception as e:
+            rospy.logerr("pull_out_trofast 中に例外: %s\n%s" % (str(e), traceback.format_exc()))
+            # 失敗時にも安全な姿勢へ戻す試み
+            try:
+                self.change_pose("all_neutral")
+            except Exception:
+                pass
+            raise
+
 
     def push_in_trofast(self, pos_x, pos_y, pos_z, yaw, pitch, roll):
         """
