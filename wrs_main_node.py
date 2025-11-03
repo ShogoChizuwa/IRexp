@@ -577,12 +577,11 @@ class WrsMainController(object):
             front_waypoint_name = plc + "_front"            
             rospy.loginfo("Going to front of %s (via %s)", plc, front_waypoint_name)
             self.goto_name(front_waypoint_name)
-            self.change_pose(pose)
             
             for _ in range(self.DETECT_CNT):
                 # 移動と視線指示
                 self.goto_name(plc)
-                # self.change_pose(pose)
+                self.change_pose(pose)
                 gripper.command(0)
 
                 # 検出した全物体を取得
