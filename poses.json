@@ -68,7 +68,7 @@
     "arm_roll_joint": -1.57,
     "wrist_flex_joint": -1.57,
     "wrist_roll_joint": 0.0,
-    "head_tilt_joint": -1.3,
+    "head_tilt_joint": -1.15,
     "head_pan_joint": 0.0
   },
   "all_neutral": {
