@@ -300,7 +300,18 @@ class WrsMainController(object):
         if not match_objs:
             rospy.logwarn("Cannot find a object which labeled with similar name.")
             return None
-        return cls.get_most_graspable_bbox(match_objs)
+        # 2. ラベルが一致したリスト(match_objs)を、
+        #    検出確率(obj.score)が高い順にソートする
+        sorted_by_score = sorted(match_objs, key=lambda obj: obj.score, reverse=True)
+        # 3. 最も確率の高かった物体（リストの先頭）を返す
+        best_match = sorted_by_score[0]
+        info_str = "{} ({:.2%}, {:3d}, {:3d}, {:3d}, {:3d})\n".format(
+            best_match.label, best_match.score, 
+            best_match.x, best_match.y, best_match.w, best_match.h)
+        rospy.loginfo("Selected best match by probability: " + info_str)
+
+        return best_match
+        # return cls.get_most_graspable_bbox(match_objs)
 
     @staticmethod
     def extract_target_obj_and_person(instruction):
