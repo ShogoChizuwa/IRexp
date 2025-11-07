@@ -270,8 +270,8 @@ class WrsMainController(object):
 
         # つかむべきかのscoreが一番高い物体を返す
         for obj_info in sorted(extracted, key=lambda x: x["score"], reverse=True):
-            obj      = obj_info["bbox"]
-            info_str = "{} ({:.2%}, {:3d}, {:3d}, {:3d}, {:3d})\n".format(obj.label, obj.score, obj.x, obj.y, obj.w, obj.h )
+            obj = obj_info["bbox"]
+            info_str = "{} ({:.2%}, {:3d}, {:3d}, {:3d}, {:3d})\n".format(obj.label, obj.score, obj.x, obj.y, obj.w, obj.h)
             rospy.loginfo("selected bbox: " + info_str)
             return obj_info
 
@@ -285,7 +285,7 @@ class WrsMainController(object):
         """
         gravity_x = bbox.x + bbox.w / 2
         gravity_y = bbox.y + bbox.h / 2
-        xy_diff   = abs(320- gravity_x) / 320 + abs(360 - gravity_y) / 240
+        xy_diff = abs(320 - gravity_x) / 320 + abs(360 - gravity_y) / 240
 
         return 1 / xy_diff
 
@@ -305,7 +305,7 @@ class WrsMainController(object):
         """
         指示文("物体名 to 人" 形式)から物体と人物を抽出する
         """
-        rospy.loginfo("[extract_target_obj_and_person] instruction:"+ instruction)
+        rospy.loginfo("[extract_target_obj_and_person] instruction:" + instruction)
         # デフォルト値（解析失敗時に使用）
         target_obj = "apple"
         target_person = "right"
@@ -316,19 +316,22 @@ class WrsMainController(object):
             parts = instruction.split(separator)
             if len(parts) == 2:
                 # 正常に "物体名" と "人物名" に分割できた場合
-                target_obj = parts[0].strip() # " to person " の前が物体名
-                target_person = parts[1].strip() # " to person " の後が人物名
+                target_obj = parts[0].strip()  # " to person " の前が物体名
+                target_person = parts[1].strip()  # " to person " の後が人物名
             # (例: "colored_wood_block to person right" -> "colored_wood_block" と "right")
-                rospy.loginfo(" -> Parsed object: [{}], person: [{}]".format(target_obj, target_person))
+                rospy.loginfo(" -> Parsed object: [{}], person: [{}]"
+                              .format(target_obj, target_person))
             else:
                 # 形式が予期せず異なる場合 (例: "A to person B to person C")
                 rospy.logerr(" -> Failed to parse instruction (unexpected format). Using defaults.")
         else:
             # 指示に " to person " が含まれていない場合
-            rospy.logerr(" -> Failed to parse instruction (separator '{}' not found). Using defaults.".format(separator))
+            rospy.logerr(" -> Failed to parse instruction (separator '{}' not found)."
+                         " Using defaults.".format(separator))
         # --- 解析ここまで ---
 
         return target_obj, target_person
+
     def get_placement_info(self, label):
         """
         検出した物体のラベル(label)から、
@@ -338,11 +341,11 @@ class WrsMainController(object):
         # 1. ラベルからカテゴリを特定
         # 辞書にないラベルの場合は 'unknown' カテゴリとする
         category = self.LABEL_TO_CATEGORY.get(label, "unknown")
-        
-        # 2. カテゴリから配置場所を特定 
-        # カテゴリが'unknown'の場合、CATEGORY_TO_PLACE['unknown'] (bin_b_place) が返される 
+
+        # 2. カテゴリから配置場所を特定
+        # カテゴリが'unknown'の場合、CATEGORY_TO_PLACE['unknown'] (bin_b_place) が返される
         place = self.CATEGORY_TO_PLACE.get(category, "bin_b_place")
-        
+
         # 3. カテゴリと場所を返す
         rospy.loginfo("Label: '{}' -> Category: '{}' -> Place: '{}'".format(label, category, place))
         return category, place
@@ -353,7 +356,8 @@ class WrsMainController(object):
 
         NOTE: tall_tableに対しての予備動作を生成するときはpreliminary="-y"と設定することになる。
         """
-        if preliminary not in [ "+y", "-y", "+x", "-x" ]: raise RuntimeError("unnkown graps preliminary type [{}]".format(preliminary))
+        if preliminary not in ["+y", "-y", "+x", "-x"]:
+            raise RuntimeError("unnkown graps preliminary type [{}]".format(preliminary))
 
         rospy.loginfo("move hand to grasp (%.2f, %.2f, %.2f)", pos_x, pos_y, pos_z)
 
@@ -374,14 +378,17 @@ class WrsMainController(object):
             grasp_back["y"] += sign * self.GRASP_BACK["xy"]
 
         gripper.command(1)
-        whole_body.move_end_effector_pose(grasp_back_safe["x"], grasp_back_safe["y"], grasp_back_safe["z"], yaw, pitch, roll)
-        whole_body.move_end_effector_pose( grasp_back["x"], grasp_back["y"], grasp_back["z"], yaw, pitch, roll)
+        whole_body.move_end_effector_pose(grasp_back_safe["x"], grasp_back_safe["y"],
+                                          grasp_back_safe["z"], yaw, pitch, roll)
+        whole_body.move_end_effector_pose(grasp_back["x"], grasp_back["y"], grasp_back["z"],
+                                          yaw, pitch, roll)
         whole_body.move_end_effector_pose(
             grasp_pos["x"], grasp_pos["y"], grasp_pos["z"], yaw, pitch, roll)
         gripper.command(0)
         # グリッパーが完全に閉じるのを待つ
-        rospy.sleep(1.0) # (例: 1.0秒待機．掴む物体に応じて調整)
-        whole_body.move_end_effector_pose(grasp_back_safe["x"], grasp_back_safe["y"], grasp_back_safe["z"], yaw, pitch, roll)
+        rospy.sleep(1.0)  # (例: 1.0秒待機．掴む物体に応じて調整)
+        whole_body.move_end_effector_pose(grasp_back_safe["x"], grasp_back_safe["y"],
+                                          grasp_back_safe["z"], yaw, pitch, roll)
 
     def grasp_from_front_side(self, grasp_pos):
         """
@@ -389,7 +396,8 @@ class WrsMainController(object):
         ややアームを下に向けている
         """
         grasp_pos.y -= self.HAND_PALM_OFFSET
-        rospy.loginfo("grasp_from_front_side (%.2f, %.2f, %.2f)",grasp_pos.x, grasp_pos.y, grasp_pos.z)
+        rospy.loginfo("grasp_from_front_side (%.2f, %.2f, %.2f)", grasp_pos.x,
+                      grasp_pos.y, grasp_pos.z)
         self.grasp_from_side(grasp_pos.x, grasp_pos.y, grasp_pos.z, -90, -100, 0, "-y")
 
     def grasp_from_upper_side(self, grasp_pos):
@@ -398,7 +406,8 @@ class WrsMainController(object):
         オブジェクトに寄るときは、y軸から近づく上面からは近づかない
         """
         grasp_pos.z += self.HAND_PALM_Z_OFFSET
-        rospy.loginfo("grasp_from_upper_side (%.2f, %.2f, %.2f)",grasp_pos.x, grasp_pos.y, grasp_pos.z)
+        rospy.loginfo("grasp_from_upper_side (%.2f, %.2f, %.2f)", grasp_pos.x,
+                      grasp_pos.y, grasp_pos.z)
         self.grasp_from_side(grasp_pos.x, grasp_pos.y, grasp_pos.z, -90, -160, 0, "-y")
 
     def exec_graspable_method(self, grasp_pos, label=""):
@@ -430,7 +439,6 @@ class WrsMainController(object):
     def put_in_place(self, place, into_pose):
         # 指定場所に入れ、all_neutral姿勢を取る。
         self.change_pose("look_at_near_floor")
-        a = "go_palce" # TODO 不要な変数
         self.goto_name(place)
         self.change_pose("all_neutral")
         self.change_pose(into_pose)
@@ -438,7 +446,7 @@ class WrsMainController(object):
         rospy.sleep(5.0)
         self.change_pose("all_neutral")
 
-    def pull_out_trofast(self, x, y, z, yaw, pitch, roll, left = False):
+    def pull_out_trofast(self, x, y, z, yaw, pitch, roll, left=False):
         # trofastの引き出しを引き出す
         if (left):
             self.goto_name("stair_like_drawer2")
@@ -462,13 +470,15 @@ class WrsMainController(object):
         """
         self.goto_name("stair_like_drawer")
         self.change_pose("grasp_on_table")
-        pos_y+=self.HAND_PALM_OFFSET
+        pos_y += self.HAND_PALM_OFFSET
 
         # 予備動作-押し込む
-        whole_body.move_end_effector_pose( pos_x, pos_y +    self.TROFAST_Y_OFFSET * 1.5, pos_z, yaw, pitch, roll)
+        whole_body.move_end_effector_pose(pos_x, pos_y + self.TROFAST_Y_OFFSET * 1.5,
+                                          pos_z, yaw, pitch, roll)
         gripper.command(0)
-        whole_body.move_end_effector_pose(  pos_x, pos_y + self.TROFAST_Y_OFFSET, pos_z, yaw, pitch, roll)
-        whole_body.move_end_effector_pose(            pos_x, pos_y, pos_z, yaw, pitch, roll)
+        whole_body.move_end_effector_pose(pos_x, pos_y + self.TROFAST_Y_OFFSET,
+                                          pos_z, yaw, pitch, roll)
+        whole_body.move_end_effector_pose(pos_x, pos_y, pos_z, yaw, pitch, roll)
 
         self.change_pose("all_neutral")
 
@@ -488,25 +498,26 @@ class WrsMainController(object):
             rospy.logwarn("Cannot find object to grasp. task2b is aborted.")
             return
         rospy.loginfo("Found graspable object '{}'".format(target_obj))
-        
+
         # BBoxの3次元座標を取得して、その座標で把持する
         grasp_pos = self.get_grasp_coordinate(grasp_bbox)
         self.change_pose("grasp_on_shelf")
         self.grasp_from_front_side(grasp_pos)
         # 掴んだ状態を安定させる
-        rospy.sleep(0.5) # (例: 0.5秒待機)
+        rospy.sleep(0.5)  # (例: 0.5秒待機)
         self.change_pose("all_neutral")
         # --- 配達先決定の修正 (person_b 固定 [cite: 569] をやめる) ---
         # 'target_person' (例: "right") に基づいて配達先を決定
         delivery_location = ""
         if target_person == "right":
-            delivery_location = "person_b" # "right" を "person_b" (座標名) にマッピング
+            delivery_location = "person_b"  # "right" を "person_b" (座標名) にマッピング
         elif target_person == "left":
-            delivery_location = "person_a" # "left" を "person_a" (座標名) にマッピング
+            delivery_location = "person_a"  # "left" を "person_a" (座標名) にマッピング
         else:
             # デフォルト（"right"でも"left"でもない場合）
-            rospy.logwarn("Unknown person name '{}', defaulting to 'person_b'".format(target_person))
-            delivery_location = "person_b" 
+            rospy.logwarn("Unknown person name '{}', "
+                          "defaulting to 'person_b'".format(target_person))
+            delivery_location = "person_b"
 
         rospy.loginfo("Delivering to: {} (based on '{}')".format(delivery_location, target_person))
         # target_personの前に持っていく
@@ -516,7 +527,7 @@ class WrsMainController(object):
         rospy.sleep(10.0)
         gripper.command(1)
         self.change_pose("all_neutral")
-    
+
     """
     def execute_avoid_blocks(self):
         # blockを避ける
@@ -528,19 +539,19 @@ class WrsMainController(object):
             # TODO メッセージを確認するためコメントアウトを外す
             # rospy.loginfo(waypoint)
             self.goto_pos(waypoint)
-    
+
     def execute_avoid_blocks(self):
         # blockを避ける (Y軸移動とX軸移動を分離)
         for i in range(10): # 10ステップのループ
-            
+
             # --- 1. 障害物と次のウェイポイントを決定 ---
             detected_objs = self.get_latest_detection()
             bboxes = detected_objs.bboxes
             pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
-            
+
             # 10ステップ版の select_next_waypoint が呼ばれる
             waypoint = self.select_next_waypoint(i, pos_bboxes)
-            
+
             target_x = waypoint[0]
             target_y = waypoint[1]
             target_yaw = waypoint[2]
@@ -548,9 +559,11 @@ class WrsMainController(object):
             # --- 2. 現在のロボットの座標を取得 ---
             try:
                 # "map" 座標系における "base_link" の現在の位置を取得
-                trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
+                trans = self.tf_buffer.lookup_transform("map", "base_link",
+                                                        rospy.Time(0), rospy.Duration(1.0))
                 current_x = trans.transform.translation.x
-            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException,
+                    tf2_ros.ExtrapolationException) as e:
                 rospy.logerr("Could not get current robot pose: %s", e)
                 rospy.logwarn("Skipping this step.")
                 continue # 現在地が取れないため、このステップはスキップ
@@ -565,23 +578,25 @@ class WrsMainController(object):
             # Yは(3)で移動した target_y を維持し、Xだけ目標のレーン(target_x)へ移動
             rospy.loginfo("Step %d: Moving in X-axis (Sideways) to %.2f", i, target_x)
             self.goto_pos([target_x, target_y, target_yaw])
-        
+
         rospy.loginfo("Finished execute_avoid_blocks.")
     """
     def execute_avoid_blocks(self):
         # [統合安全チェック] X軸移動を先に実行し、安全を確保してからY軸で前進
-        
+
         # 10ステップのY座標境界
         y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
-        
+
         for i in range(10):  # 10ステップのループ
-            
+
             # --- 1. 現在地の取得 ---
             try:
-                trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
+                trans = self.tf_buffer.lookup_transform("map", "base_link",
+                                                        rospy.Time(0), rospy.Duration(1.0))
                 current_x = trans.transform.translation.x
                 current_y = trans.transform.translation.y
-            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException,
+                    tf2_ros.ExtrapolationException) as e:
                 rospy.logerr("Could not get current robot pose: %s", e)
                 continue
 
@@ -607,6 +622,7 @@ class WrsMainController(object):
             rospy.sleep(0.5)  # Y移動の完了を待つ
 
         rospy.loginfo("Finished integrated avoid blocks.")
+
     def select_best_safe_lane(self, pos_bboxes, current_x, current_y, target_y):
         """
         [NEW - 統合安全チェック]
