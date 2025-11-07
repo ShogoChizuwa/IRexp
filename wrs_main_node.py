@@ -114,11 +114,13 @@ class WrsMainController(object):
     def __init__(self):
         # 変数の初期化
         self.instruction_list = []
-        self.detection_list   = []
+        self.detection_list = []
+
+        self.food_counter = 0  # 食品カテゴリを置いた回数をカウント
 
         # configファイルの受信
         self.coordinates = self.load_json(self.get_path(["config", "coordinates.json"]))
-        self.poses       = self.load_json(self.get_path(["config", "poses.json"]))
+        self.poses = self.load_json(self.get_path(["config", "poses.json"]))
 
         # ROS通信関連の初期化
         tf_from_bbox_srv_name = "set_tf_from_bbox"
@@ -343,6 +345,14 @@ class WrsMainController(object):
         # カテゴリが'unknown'の場合、CATEGORY_TO_PLACE['unknown'] (bin_b_place) が返される 
         place = self.CATEGORY_TO_PLACE.get(category, "bin_b_place")
         
+        if category == "food":
+            if self.food_counter % 2 == 0:
+                place = "tray_a_place"
+            else:
+                place = "tray_b_place"
+
+        self.food_counter += 1 # カウンターを増やす
+
         # 3. カテゴリと場所を返す
         rospy.loginfo("Label: '{}' -> Category: '{}' -> Place: '{}'".format(label, category, place))
         return category, place
@@ -607,7 +617,7 @@ class WrsMainController(object):
             rospy.sleep(0.5) # Y移動の完了を待つ
 
         rospy.loginfo("Finished integrated avoid blocks.")
-   def select_best_safe_lane(self, pos_bboxes, current_x, current_y, target_y):
+    def select_best_safe_lane(self, pos_bboxes, current_x, current_y, target_y):
         """
         [NEW - 統合安全チェック]
         現在の(current_x, current_y)から、あるレーンへ横移動し、
@@ -617,7 +627,7 @@ class WrsMainController(object):
         interval = 0.45
         pos_xa = 1.7
         pos_xb = 1.8 + interval       # 2.25
-        pos_xc = 1.7 + (interval * 2) # 2.60
+        pos_xc = 1.7 + (interval * 2)  # 2.60
         lane_centers = {"xa": pos_xa, "xb": pos_xb, "xc": pos_xc}
 
         # 安全マージン (ロボット半径 + 障害物半径 + バッファ)
@@ -637,7 +647,7 @@ class WrsMainController(object):
                     path_min_x = min(current_x, lane_x) - SAFETY_BUFFER
                     path_max_x = max(current_x, lane_x) + SAFETY_BUFFER
                     if path_min_x < pos.x < path_max_x:
-                        lane_safe[lane_name] = False # このレーンへの横移動は危険
+                        lane_safe[lane_name] = False  # このレーンへの横移動は危険
                         rospy.logwarn("X-Path to %s blocked by obstacle at (%.2f, %.2f)", lane_name, pos.x, pos.y)
 
             # --- チェック2: 前進の安全性 ---
@@ -646,7 +656,7 @@ class WrsMainController(object):
                  for lane_name, lane_x in lane_centers.items():
                      # このレーンの前進パス(X)と障害物(pos.x)が重なるか？
                      if (lane_x - SAFETY_BUFFER) < pos.x < (lane_x + SAFETY_BUFFER):
-                         lane_safe[lane_name] = False # このレーンでの前進は危険
+                         lane_safe[lane_name] = False  # このレーンでの前進は危険
                          rospy.logwarn("Y-Path in %s blocked by obstacle at (%.2f, %.2f)", lane_name, pos.x, pos.y)
 
         # 安全なレーン候補を抽出
@@ -656,7 +666,7 @@ class WrsMainController(object):
 
         if not safe_candidates:
             rospy.logwarn("NO COMPLETELY SAFE LANE! Staying in current X lane as emergency fallback.")
-            return current_x # 危険なら動かないのが一番マシ
+            return current_x  # 危険なら動かないのが一番マシ
         else:
             # 安全な候補の中で、現在地に最も近いレーンを選ぶ（無駄な動きを減らす）
             best_lane = min(safe_candidates, key=lambda l: abs(lane_centers[l] - current_x))

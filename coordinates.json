@@ -23,6 +23,7 @@
     "drawer_left_place": [0.48, 0.0, -90],
     "drawer_top_place": [0.178, 0.0, -90],
     "tray_a_place": [1.5, 0.0, -90],
+    "tray_b_place": [1.65, 0.0, -90],
     "container_a_place": [0.82, 0.0, -90],
     "container_b_place": [1.0, 0.0, -90]
   },
@@ -48,6 +49,7 @@
       "drawer_left_place",
       "drawer_top_place",
       "tray_a_place",
+      "tray_b_place",
       "container_a_place",
       "container_b_place"
     ]
