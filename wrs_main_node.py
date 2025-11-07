@@ -25,7 +25,7 @@ class WrsMainController(object):
     """
     WRSのシミュレーション環境内でタスクを実行するクラス
     """
-    IGNORE_LIST = []
+    IGNORE_LIST = ["small_marker", "large_marker", "tuna_fish_can"]
     GRASP_TF_NAME = "object_grasping"
     GRASP_BACK_SAFE = {"z": 0.05, "xy": 0.3}
     GRASP_BACK = {"z": 0.05, "xy": 0.1}
@@ -686,16 +686,16 @@ class WrsMainController(object):
         ]
 
         self.pull_out_trofast(0.178, -0.3, 0.275, 0, -100, 90)
-        self.pull_out_trofast(0.178, -0.31, 0.55, 0, -100, 90)
+        self.pull_out_trofast(0.178, -0.31, 0.545, 0, -100, 90)
         self.pull_out_trofast(0.48, -0.31, 0.275, 0, -100, 90, True)
-        
+       
         total_cnt = 0
         for plc, pose in hsr_position:
             # 正面経由
-            front_waypoint_name = plc + "_front"            
+            front_waypoint_name = plc + "_front"          
             rospy.loginfo("Going to front of %s (via %s)", plc, front_waypoint_name)
             self.goto_name(front_waypoint_name)
-            
+       
             for _ in range(self.DETECT_CNT):
                 # 移動と視線指示
                 self.goto_name(plc)
@@ -704,7 +704,7 @@ class WrsMainController(object):
 
                 # 検出した全物体を取得
                 detected_objs = self.get_latest_detection().bboxes
-                
+           
                 # 「床にある」と判断した物体候補のリスト
                 floor_objects_info = []
 
@@ -756,6 +756,8 @@ class WrsMainController(object):
                     rospy.logwarn("exec_graspable_method returned False for [%s]", label)
                     continue
                 
+                rospy.loginfo("Going to front of %s", plc)
+                self.goto_name(front_waypoint_name)
                 self.change_pose("all_neutral")
 
                 # 1. ラベルからカテゴリと配置場所を取得
