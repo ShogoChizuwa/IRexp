@@ -681,43 +681,105 @@ class WrsMainController(object):
         rospy.loginfo("Finished execute_avoid_blocks.")
     """
     def execute_avoid_blocks(self):
-        # blockを避ける (X軸移動を先に実行し、安全を確保してからY軸で前進)
+        """
+        [幾何学アプローチ] 2つの障害物の垂直二等分線を利用して回避する
+        1. 現在地から垂直二等分線へ最短経路（垂直方向）で移動
+        2. 垂直二等分線に沿ってゴール（Y=3.3）まで移動
+        """
+        # 最終的に到達したいY座標（エリアの出口）
+        TARGET_Y_EXIT = 3.3
+        # デフォルトの安全なX座標（障害物が見つからない場合用, 中央レーン付近）
+        DEFAULT_SAFE_X = 2.15
+
+        # --- 1. 状況認識 ---
+        rospy.loginfo("Starting geometric obstacle avoidance...")
         
-        # 10ステップのY座標境界 (select_next_waypointから移動)
-        y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
+        # 現在地の取得
+        try:
+            trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
+            current_x = trans.transform.translation.x
+            current_y = trans.transform.translation.y
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logerr("Could not get current robot pose: %s", e)
+            return
+
+        # 障害物の検出と座標取得
+        detected_objs = self.get_latest_detection().bboxes
+        obstacles = []
+        for bbox in detected_objs:
+            pos = self.get_grasp_coordinate(bbox)
+            if pos is not None:
+                # Y座標が現在地より先にあるものだけを対象とする
+                if pos.y > current_y:
+                    obstacles.append(pos)
+
+        # --- 2. 経路計算 ---
+        if len(obstacles) < 2:
+            rospy.logwarn("Less than 2 obstacles detected. Using default straight path.")
+            # 障害物が足りない場合は、デフォルトの中央レーンを進む
+            target_x_on_line = DEFAULT_SAFE_X
+            target_y_exit = TARGET_Y_EXIT
+            # 現在地から中央レーンへ移動するための仮の経由点
+            approach_x = DEFAULT_SAFE_X
+            approach_y = current_y 
+
+        else:
+            # ロボットに近い手前の2つを主要な障害物として選択する
+            # (Y座標でソートして手前の2つを取得)
+            obstacles.sort(key=lambda p: p.y)
+            p1 = obstacles[0]
+            p2 = obstacles[1]
+            rospy.loginfo("Selected obstacles for bisector: P1(%.2f, %.2f), P2(%.2f, %.2f)", p1.x, p1.y, p2.x, p2.y)
+
+            # --- 垂直二等分線の計算 ---
+            # P1, P2の中点 M
+            mx = (p1.x + p2.x) / 2.0
+            my = (p1.y + p2.y) / 2.0
+            
+            # P1->P2ベクトル (これが垂直二等分線の法線ベクトルになる)
+            # Line equation: A(x - mx) + B(y - my) = 0  => Ax + By + C = 0
+            a = p2.x - p1.x
+            b = p2.y - p1.y
+            c = -(a * mx + b * my)
+
+            # --- Move 1: 現在地から垂直二等分線への最短（垂直）移動 ---
+            # 現在地 (current_x, current_y) から直線 Ax+By+C=0 への垂線の足を求める
+            # 公式: xp = x - A * (Ax+By+C)/(A^2+B^2)
+            norm_sq = a*a + b*b
+            if norm_sq < 1e-6: # ゼロ除算対策（障害物が重なっている場合など）
+                 rospy.logwarn("Obstacles are too close. Cannot calculate bisector.")
+                 approach_x, approach_y = current_x, current_y
+                 target_x_on_line, target_y_exit = DEFAULT_SAFE_X, TARGET_Y_EXIT
+            else:
+                k = (a * current_x + b * current_y + c) / norm_sq
+                approach_x = current_x - a * k
+                approach_y = current_y - b * k
+
+            # --- Move 2: 垂直二等分線に沿ってゴール(Y=3.3)まで移動 ---
+            # 直線式 Ax + By + C = 0 において Y = TARGET_Y_EXIT の時の X を求める
+            # Ax = -By - C  =>  x = (-B*TARGET_Y_EXIT - C) / A
+            if abs(a) < 1e-6: 
+                # A=0 は二等分線が水平(真横)であることを意味する。
+                # 今回のタスク(前進)ではありえないはずだが、念のためハンドリング。
+                # この場合、Xは変化せずYだけ進む（またはその逆）が、危険なのでデフォルトへ。
+                target_x_on_line = DEFAULT_SAFE_X 
+            else:
+                target_x_on_line = (-b * TARGET_Y_EXIT - c) / a
+            
+            target_y_exit = TARGET_Y_EXIT
+
+        # --- 3. 移動実行 ---
         
-        for i in range(10): # 10ステップのループ
-            
-            # --- 1. 現在のロボットの座標を取得 ---
-            try:
-                trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
-                current_x = trans.transform.translation.x
-                current_y = trans.transform.translation.y # 現在のY座標
-            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-                rospy.logerr("Could not get current robot pose: %s", e)
-                rospy.logwarn("Skipping this step.")
-                continue 
+        # Move 1: 垂直二等分線に乗る（最短アプローチ）
+        # Y方向にはあまり進まず、主にX方向の移動になるはず
+        rospy.loginfo("Move 1: Approach bisector at (%.2f, %.2f)", approach_x, approach_y)
+        self.goto_pos([approach_x, approach_y, 90])
 
-            # --- 2. Y軸移動後、X軸の安全確認 ---
-            detected_objs = self.get_latest_detection()
-            bboxes = detected_objs.bboxes
-            pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in bboxes]
-            
-            # (X軸の安全確認と移動先を決定する関数を呼び出す)
-            target_x = self.find_safe_x_lane(pos_bboxes, current_x, current_y)
+        # Move 2: 垂直二等分線を辿って出口へ
+        rospy.loginfo("Move 2: Follow bisector to exit at (%.2f, %.2f)", target_x_on_line, target_y_exit)
+        self.goto_pos([target_x_on_line, target_y_exit, 90])
 
-            # --- 3. X軸方向（横移動）に先に移動 ---
-            # Yは現在の位置(current_y)を維持し、Xだけ目標のレーン(target_x)へ移動
-            rospy.loginfo("Step %d: Moving in X-axis (Sideways) to %.2f", i, target_x)
-            self.goto_pos([target_x, current_y, 90]) # Yawは常に90度
-
-            # --- 4. Y軸方向（前進）に次に移動 ---
-            # Xは(3)で移動した target_x を維持し、Yだけ次のステップ(target_y)へ進む
-            target_y = y_thresholds[i+1] # i=0の時、y_thresholds[1] (1.995) になる
-            rospy.loginfo("Step %d: Moving in Y-axis (Forward) to %.2f", i, target_y)
-            self.goto_pos([target_x, target_y, 90])
-
-        rospy.loginfo("Finished execute_avoid_blocks.")
+        rospy.loginfo("Finished geometric obstacle avoidance.")
 
     def find_safe_x_lane(self, pos_bboxes, current_x, current_y):
         """
@@ -873,7 +935,7 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.18, -0.29, 0.55, 0, -100, 0)
+        self.pull_out_trofast(0.178, -0.1, 0.55, 0, -100, 0)
 
         total_cnt = 0
         for plc, pose in hsr_position:
