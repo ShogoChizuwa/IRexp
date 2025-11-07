@@ -737,7 +737,7 @@ class WrsMainController(object):
         lane_centers = {"xa": pos_xa, "xb": pos_xb, "xc": pos_xc}
 
         # 安全マージン (ロボット半径 + 障害物半径 + バッファ)
-        SAFETY_BUFFER = 0.4 # 40cm
+        SAFETY_BUFFER = 0.45 # 40cm
 
         # 各レーンの安全フラグ (Trueで初期化)
         lane_safe = {"xa": True, "xb": True, "xc": True}
