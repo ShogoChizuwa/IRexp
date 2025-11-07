@@ -379,6 +379,8 @@ class WrsMainController(object):
         whole_body.move_end_effector_pose(
             grasp_pos["x"], grasp_pos["y"], grasp_pos["z"], yaw, pitch, roll)
         gripper.command(0)
+        # グリッパーが完全に閉じるのを待つ
+        rospy.sleep(1.0) # (例: 1.0秒待機．掴む物体に応じて調整)
         whole_body.move_end_effector_pose(grasp_back_safe["x"], grasp_back_safe["y"], grasp_back_safe["z"], yaw, pitch, roll)
 
     def grasp_from_front_side(self, grasp_pos):
@@ -607,6 +609,8 @@ class WrsMainController(object):
         grasp_pos = self.get_grasp_coordinate(grasp_bbox)
         self.change_pose("grasp_on_shelf")
         self.grasp_from_front_side(grasp_pos)
+        # 掴んだ状態を安定させる
+        rospy.sleep(0.5) # (例: 0.5秒待機)
         self.change_pose("all_neutral")
         # --- 配達先決定の修正 (person_b 固定 [cite: 569] をやめる) ---
         # 'target_person' (例: "right") に基づいて配達先を決定
