@@ -713,61 +713,66 @@ class WrsMainController(object):
                 self.change_pose(pose)
                 gripper.command(0)
 
-                # 検出した全物体を取得
-                detected_objs = self.get_latest_detection()
-                graspable_obj = self.get_most_graspable_obj(detected_objs.bboxes)
-           
-                # 掴めると判断した物体候補のリスト
-                grasp_objects_info = []
+                # 1. 検出した全物体を取得
+                detected_objs_list = self.get_latest_detection()
+                
+                # 2. フィルターを通過した「掴める候補」のリスト
+                grasp_candidates = []
 
-                # Y座標（奥行き）のしきい値
+                # 3. Y座標（奥行き）のしきい値
                 GRASPABLE_Y_THRESHOLD = 2.0
 
-                for obj in graspable_obj:
-                    # 物体の3D座標を取得
-                    grasp_pos = self.get_grasp_coordinate(obj.bboxes)
+                # 4. 全ての検出物体をチェック
+                for obj in detected_objs_list:
+                    
+                    # 5. 【重要】get_most_graspable_obj の「IGNORE_LIST」ロジックをここで実行
+                    if obj.label in self.IGNORE_LIST:
+                        rospy.loginfo("Ignoring object [%s] (In IGNORE_LIST)", obj.label)
+                        continue
+
+                    # 6. 物体の3D座標を取得
+                    grasp_pos = self.get_grasp_coordinate(obj)
                     if grasp_pos is None:
-                        rospy.logwarn("Failed to get coordinate for [%s]", obj.bboxes.label)
-                        break
+                        rospy.logwarn("Failed to get coordinate for [%s]", obj.label)
+                        continue
 
-                    # フィルター：Y座標（奥行き）チェック
+                    # 7. Y座標フィルターを実行
                     if grasp_pos.y >= GRASPABLE_Y_THRESHOLD:
-                        rospy.loginfo("Ignoring object [%s] (Too far: Y=%.2f)", obj.bboxes.label, grasp_pos.y)
-                        continue # 壁の奥など、奥すぎると判断し、無視
+                        rospy.loginfo("Ignoring object [%s] (Too far: Y=%.2f)", obj.label, grasp_pos.y)
+                        continue # 奥すぎると判断し、無視
 
-                    # フィルターを通過した物体のみ候補リストに追加
+                    # 8. 全てのフィルターを通過した物体のみ、候補リストに追加
+                    #    (get_most_graspable_obj の「スコア計算」ロジックもここで実行)
                     score = self.calc_score_bbox(obj)
-                    grasp_objects_info.append({
-                        "bbox": obj.bboxes, 
+                    grasp_candidates.append({
+                        "bbox": obj, 
                         "score": score, 
-                        "label": obj.bboxes.label, 
-                        "pos": grasp_pos  # 3D座標も保存
+                        "label": obj.label, 
+                        "pos": grasp_pos
                     })
 
-                # 最終的な把持対象を決定
-                graspable_obj = self.get_most_graspable_obj(detected_objs.bboxes)
-                if graspable_obj is None:
-                    rospy.logwarn("Cannot determine object to grasp. Grasping is aborted.")
-                    continue
+                # 9. 掴める候補が一つもなかった場合
+                if not grasp_candidates:
+                    rospy.logwarn("Cannot find graspable object (After ALL filters).")
+                    continue # 次の検出試行へ
 
-                # 最もスコアの高い物体を選択
-                label = graspable_obj["label"]
-                grasp_bbox = graspable_obj["bbox"]
-                # TODO ラベル名を確認するためにコメントアウトを外す
+                # 10. 候補リストをスコアの高い順にソート
+                grasp_candidates.sort(key=lambda x: x["score"], reverse=True)
+
+                # 11. フィルターを通過した中で、最もスコアの高い物体を選択
+                best_obj_info = grasp_candidates[0]
+                label = best_obj_info["label"]
+                grasp_pos = best_obj_info["pos"]
+                
                 rospy.loginfo("grasp the " + label)
 
-                # 把持対象がある場合は把持関数実施
-                grasp_pos = self.get_grasp_coordinate(grasp_bbox)
+                # 12. 把持を実行
                 self.change_pose("grasp_on_table")
                 
-                # 座標チェックは完了しているので、exec_graspable_method を実行
                 if not self.exec_graspable_method(grasp_pos, label):
                     rospy.logwarn("exec_graspable_method returned False for [%s]", label)
                     continue
                 
-                # rospy.loginfo("Going to behind %s", plc)
-                # behind_waypoint_name = plc + "_behind"
-                # self.goto_name(behind_waypoint_name)
                 self.change_pose("all_neutral")
 
                 # 1. ラベルからカテゴリと配置場所を取得
