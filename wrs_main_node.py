@@ -574,7 +574,7 @@ class WrsMainController(object):
         # 10ステップのY座標境界
         y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
         
-        for i in range(10): # 10ステップのループ
+        for i in range(10):  # 10ステップのループ
             
             # --- 1. 現在地の取得 ---
             try:
@@ -596,15 +596,15 @@ class WrsMainController(object):
             target_x = self.select_best_safe_lane(pos_bboxes, current_x, current_y, target_y)
 
             # --- 5. 実行: まず横移動 (X) ---
-            if abs(target_x - current_x) > 0.05: # 5cm以上の移動が必要なら
+            if abs(target_x - current_x) > 0.05:  # 5cm以上の移動が必要なら
                 rospy.loginfo("Step %d: Adjusting X to %.2f (at Y=%.2f)", i, target_x, current_y)
                 self.goto_pos([target_x, current_y, 90])
-                rospy.sleep(0.5) # X移動の完了を待つ
+                rospy.sleep(0.5)  # X移動の完了を待つ
 
             # --- 6. 実行: 次に前進 (Y) ---
             rospy.loginfo("Step %d: Advancing Y to %.2f (in lane X=%.2f)", i, target_y, target_x)
             self.goto_pos([target_x, target_y, 90])
-            rospy.sleep(0.5) # Y移動の完了を待つ
+            rospy.sleep(0.5)  # Y移動の完了を待つ
 
         rospy.loginfo("Finished integrated avoid blocks.")
     def select_best_safe_lane(self, pos_bboxes, current_x, current_y, target_y):
@@ -616,19 +616,20 @@ class WrsMainController(object):
         # レーン定義
         interval = 0.45
         pos_xa = 1.7
-        pos_xb = 1.7 + interval       # 2.15
-        pos_xc = 1.7 + (interval * 2) # 2.60
+        pos_xb = 1.7 + interval        # 2.15
+        pos_xc = 1.7 + (interval * 2)  # 2.60
         lane_centers = {"xa": pos_xa, "xb": pos_xb, "xc": pos_xc}
 
         # 安全マージン (ロボット半径 + 障害物半径 + バッファ)
-        SAFETY_BUFFER = 0.45 # 40cm
+        SAFETY_BUFFER = 0.45  # 40cm
 
         # 各レーンの安全フラグ (Trueで初期化)
         lane_safe = {"xa": True, "xb": True, "xc": True}
 
         for pos in pos_bboxes:
-            if pos is None: continue
-            
+            if pos is None:
+                continue
+
             # --- チェック1: 横移動の安全性 ---
             # 現在のY座標付近(±20cm)にある障害物について
             if (current_y - 0.2) < pos.y < (current_y + 0.2):
@@ -637,33 +638,35 @@ class WrsMainController(object):
                     path_min_x = min(current_x, lane_x) - SAFETY_BUFFER
                     path_max_x = max(current_x, lane_x) + SAFETY_BUFFER
                     if path_min_x < pos.x < path_max_x:
-                        lane_safe[lane_name] = False # このレーンへの横移動は危険
-                        rospy.logwarn("X-Path to %s blocked by obstacle at (%.2f, %.2f)", lane_name, pos.x, pos.y)
+                        lane_safe[lane_name] = False  # このレーンへの横移動は危険
+                        rospy.logwarn("X-Path to %s blocked by obstacle at (%.2f, %.2f)",
+                                      lane_name, pos.x, pos.y)
 
             # --- チェック2: 前進の安全性 ---
             # これから進むY座標(current_y ~ target_y)の間にある障害物について
             if current_y < pos.y < target_y:
-                 for lane_name, lane_x in lane_centers.items():
-                     # このレーンの前進パス(X)と障害物(pos.x)が重なるか？
-                     if (lane_x - SAFETY_BUFFER) < pos.x < (lane_x + SAFETY_BUFFER):
-                         lane_safe[lane_name] = False # このレーンでの前進は危険
-                         rospy.logwarn("Y-Path in %s blocked by obstacle at (%.2f, %.2f)", lane_name, pos.x, pos.y)
+                for lane_name, lane_x in lane_centers.items():
+                    # このレーンの前進パス(X)と障害物(pos.x)が重なるか？
+                    if (lane_x - SAFETY_BUFFER) < pos.x < (lane_x + SAFETY_BUFFER):
+                        lane_safe[lane_name] = False  # このレーンでの前進は危険
+                        rospy.logwarn("Y-Path in %s blocked by obstacle at (%.2f, %.2f)",
+                                      lane_name, pos.x, pos.y)
 
         # 安全なレーン候補を抽出
         safe_candidates = [lane for lane, is_safe in lane_safe.items() if is_safe]
-        
+
         rospy.loginfo("Safe lanes for Step: %s", safe_candidates)
 
         if not safe_candidates:
-            rospy.logwarn("NO COMPLETELY SAFE LANE! Staying in current X lane as emergency fallback.")
-            return current_x # 危険なら動かないのが一番マシ
+            rospy.logwarn("NO COMPLETELY SAFE LANE! Staying in "
+                          "current X lane as emergency fallback.")
+            return current_x  # 危険なら動かないのが一番マシ
         else:
             # 安全な候補の中で、現在地に最も近いレーンを選ぶ（無駄な動きを減らす）
-            best_lane = min(safe_candidates, key=lambda l: abs(lane_centers[l] - current_x))
+            best_lane = min(safe_candidates, key=lambda lane: abs(lane_centers[lane] - current_x))
             rospy.loginfo("Selected best (closest safe) lane: %s", best_lane)
             return lane_centers[best_lane]
-            
-        
+
     def execute_task1(self):
         """
         task1を実行する
@@ -678,14 +681,14 @@ class WrsMainController(object):
         self.pull_out_trofast(0.178, -0.3, 0.275, 0, -100, 90)
         self.pull_out_trofast(0.178, -0.31, 0.55, 0, -100, 90)
         self.pull_out_trofast(0.48, -0.31, 0.275, 0, -100, 90, True)
-        
+
         total_cnt = 0
         for plc, pose in hsr_position:
             # 正面経由
-            front_waypoint_name = plc + "_front"            
+            front_waypoint_name = plc + "_front"
             rospy.loginfo("Going to front of %s (via %s)", plc, front_waypoint_name)
             self.goto_name(front_waypoint_name)
-            
+
             for _ in range(self.DETECT_CNT):
                 # 移動と視線指示
                 self.goto_name(plc)
@@ -694,7 +697,7 @@ class WrsMainController(object):
 
                 # 検出した全物体を取得
                 detected_objs = self.get_latest_detection().bboxes
-                
+
                 # 「床にある」と判断した物体候補のリスト
                 floor_objects_info = []
 
@@ -710,15 +713,16 @@ class WrsMainController(object):
 
                     # フィルター：Y座標（奥行き）チェック
                     if grasp_pos.y >= GRASPABLE_Y_THRESHOLD:
-                        rospy.loginfo("Ignoring object [%s] (Too far: Y=%.2f)", obj.label, grasp_pos.y)
-                        continue # 壁の奥など、奥すぎると判断し、無視
+                        rospy.loginfo("Ignoring object [%s] (Too far: Y=%.2f)",
+                                      obj.label, grasp_pos.y)
+                        continue  # 壁の奥など、奥すぎると判断し、無視
 
                     # フィルターを通過した物体のみ候補リストに追加
                     score = self.calc_score_bbox(obj)
                     floor_objects_info.append({
-                        "bbox": obj, 
-                        "score": score, 
-                        "label": obj.label, 
+                        "bbox": obj,
+                        "score": score,
+                        "label": obj.label,
                         "pos": grasp_pos  # 3D座標も保存
                     })
 
@@ -729,7 +733,7 @@ class WrsMainController(object):
                 if not floor_objects_info:
                     # 候補が一つもなかった
                     rospy.logwarn("Cannot find graspable object on the floor in this view.")
-                    continue # 次の検出試行へ
+                    continue  # 次の検出試行へ
 
                 # 最もスコアの高い物体を選択
                 best_obj_info = floor_objects_info[0]
@@ -740,20 +744,20 @@ class WrsMainController(object):
 
                 # 把持対象がある場合は把持関数実施
                 self.change_pose("grasp_on_table")
-                
+
                 # 座標チェックは完了しているので、exec_graspable_method を実行
                 if not self.exec_graspable_method(grasp_pos, label):
                     rospy.logwarn("exec_graspable_method returned False for [%s]", label)
                     continue
-                
+
                 self.change_pose("all_neutral")
 
                 # 1. ラベルからカテゴリと配置場所を取得
                 category, place_name = self.get_placement_info(label)
-                #place_name = "bin_a"
+                # place_name = "bin_a"
 
                 # 2. 常に "put_in_bin" の姿勢を使う（テスト用）
-                into_pose = "put_in_bin" 
+                into_pose = "put_in_bin"
 
                 # 3. 取得した配置場所(place_name)と、固定の姿勢(into_pose)で物体を置く
                 self.put_in_place(place_name, into_pose)
