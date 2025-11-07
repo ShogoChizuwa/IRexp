@@ -682,19 +682,16 @@ class WrsMainController(object):
     """
     def execute_avoid_blocks(self):
         """
-        [幾何学アプローチ] 2つの障害物の垂直二等分線を利用して回避する
-        1. 現在地から垂直二等分線へ最短経路（垂直方向）で移動
-        2. 垂直二等分線に沿ってゴール（Y=3.3）まで移動
+        [修正版・幾何学アプローチ] 障害物の重複検知に対応
         """
-        # 最終的に到達したいY座標（エリアの出口）
         TARGET_Y_EXIT = 3.3
-        # デフォルトの安全なX座標（障害物が見つからない場合用, 中央レーン付近）
         DEFAULT_SAFE_X = 2.15
-
-        # --- 1. 状況認識 ---
-        rospy.loginfo("Starting geometric obstacle avoidance...")
         
-        # 現在地の取得
+        # 障害物とみなす最小距離 (これより近い検知は同じ物体とみなす)
+        MIN_OBSTACLE_DIST = 0.5 # 50cm
+
+        rospy.loginfo("Starting ROBUST geometric obstacle avoidance...")
+        
         try:
             trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
             current_x = trans.transform.translation.x
@@ -703,84 +700,93 @@ class WrsMainController(object):
             rospy.logerr("Could not get current robot pose: %s", e)
             return
 
-        # 障害物の検出と座標取得
         detected_objs = self.get_latest_detection().bboxes
-        obstacles = []
+        raw_obstacles = []
         for bbox in detected_objs:
             pos = self.get_grasp_coordinate(bbox)
-            if pos is not None:
-                # Y座標が現在地より先にあるものだけを対象とする
-                if pos.y > current_y:
-                    obstacles.append(pos)
+            if pos is not None and pos.y > current_y:
+                raw_obstacles.append(pos)
 
-        # --- 2. 経路計算 ---
-        if len(obstacles) < 2:
-            rospy.logwarn("Less than 2 obstacles detected. Using default straight path.")
-            # 障害物が足りない場合は、デフォルトの中央レーンを進む
+        # --- 1. クラスタリング（重複除去） ---
+        unique_obstacles = []
+        for p in raw_obstacles:
+            is_new = True
+            for up in unique_obstacles:
+                dist = math.sqrt((p.x - up.x)**2 + (p.y - up.y)**2)
+                if dist < MIN_OBSTACLE_DIST:
+                    is_new = False # すでに登録済みの障害物に近いので無視
+                    break
+            if is_new:
+                unique_obstacles.append(p)
+
+        # Y座標でソート
+        unique_obstacles.sort(key=lambda p: p.y)
+        
+        num_obstacles = len(unique_obstacles)
+        rospy.loginfo("Found %d unique obstacles.", num_obstacles)
+
+        # --- 2. 障害物数に応じた戦略 ---
+        if num_obstacles == 0:
+            # 障害物なし -> 中央を直進
+            rospy.loginfo("No obstacles. Going straight.")
+            approach_x, approach_y = DEFAULT_SAFE_X, current_y
             target_x_on_line = DEFAULT_SAFE_X
-            target_y_exit = TARGET_Y_EXIT
-            # 現在地から中央レーンへ移動するための仮の経由点
-            approach_x = DEFAULT_SAFE_X
-            approach_y = current_y 
+
+        elif num_obstacles == 1:
+            # 障害物1つ -> 障害物のいない側を通る
+            obs = unique_obstacles[0]
+            rospy.loginfo("Single obstacle at (%.2f, %.2f).", obs.x, obs.y)
+            
+            # 障害物が中央(2.15)より右にいれば、左(1.7)を通る。逆なら右(2.6)を通る。
+            if obs.x > DEFAULT_SAFE_X:
+                target_x_on_line = 1.7 # 左レーン
+            else:
+                target_x_on_line = 2.6 # 右レーン
+            
+            approach_x, approach_y = target_x_on_line, current_y
 
         else:
-            # ロボットに近い手前の2つを主要な障害物として選択する
-            # (Y座標でソートして手前の2つを取得)
-            obstacles.sort(key=lambda p: p.y)
-            p1 = obstacles[0]
-            p2 = obstacles[1]
-            rospy.loginfo("Selected obstacles for bisector: P1(%.2f, %.2f), P2(%.2f, %.2f)", p1.x, p1.y, p2.x, p2.y)
+            # 障害物2つ以上 -> 手前の2つで垂直二等分線を計算
+            p1 = unique_obstacles[0]
+            p2 = unique_obstacles[1]
+            rospy.loginfo("Bisector between: P1(%.2f, %.2f), P2(%.2f, %.2f)", p1.x, p1.y, p2.x, p2.y)
 
-            # --- 垂直二等分線の計算 ---
-            # P1, P2の中点 M
-            mx = (p1.x + p2.x) / 2.0
-            my = (p1.y + p2.y) / 2.0
-            
-            # P1->P2ベクトル (これが垂直二等分線の法線ベクトルになる)
-            # Line equation: A(x - mx) + B(y - my) = 0  => Ax + By + C = 0
-            a = p2.x - p1.x
-            b = p2.y - p1.y
+            mx, my = (p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0
+            a, b = p2.x - p1.x, p2.y - p1.y
             c = -(a * mx + b * my)
 
-            # --- Move 1: 現在地から垂直二等分線への最短（垂直）移動 ---
-            # 現在地 (current_x, current_y) から直線 Ax+By+C=0 への垂線の足を求める
-            # 公式: xp = x - A * (Ax+By+C)/(A^2+B^2)
             norm_sq = a*a + b*b
-            if norm_sq < 1e-6: # ゼロ除算対策（障害物が重なっている場合など）
-                 rospy.logwarn("Obstacles are too close. Cannot calculate bisector.")
-                 approach_x, approach_y = current_x, current_y
-                 target_x_on_line, target_y_exit = DEFAULT_SAFE_X, TARGET_Y_EXIT
+            # すでにクラスタリング済みなので norm_sq が極端に小さいことはないはずだが念のため
+            if norm_sq < 1e-4:
+                 rospy.logwarn("Obstacles too close even after filtering. Using default.")
+                 approach_x, approach_y = DEFAULT_SAFE_X, current_y
+                 target_x_on_line = DEFAULT_SAFE_X
             else:
                 k = (a * current_x + b * current_y + c) / norm_sq
                 approach_x = current_x - a * k
                 approach_y = current_y - b * k
 
-            # --- Move 2: 垂直二等分線に沿ってゴール(Y=3.3)まで移動 ---
-            # 直線式 Ax + By + C = 0 において Y = TARGET_Y_EXIT の時の X を求める
-            # Ax = -By - C  =>  x = (-B*TARGET_Y_EXIT - C) / A
-            if abs(a) < 1e-6: 
-                # A=0 は二等分線が水平(真横)であることを意味する。
-                # 今回のタスク(前進)ではありえないはずだが、念のためハンドリング。
-                # この場合、Xは変化せずYだけ進む（またはその逆）が、危険なのでデフォルトへ。
-                target_x_on_line = DEFAULT_SAFE_X 
-            else:
-                target_x_on_line = (-b * TARGET_Y_EXIT - c) / a
-            
-            target_y_exit = TARGET_Y_EXIT
+                if abs(a) < 1e-6: target_x_on_line = DEFAULT_SAFE_X
+                else: target_x_on_line = (-b * TARGET_Y_EXIT - c) / a
 
-        # --- 3. 移動実行 ---
+        # --- 3. 安全な移動実行 (X→Y分離) ---
+        # 斜め移動は衝突のリスクがあるため、ここでも分離移動を採用します
         
-        # Move 1: 垂直二等分線に乗る（最短アプローチ）
-        # Y方向にはあまり進まず、主にX方向の移動になるはず
-        rospy.loginfo("Move 1: Approach bisector at (%.2f, %.2f)", approach_x, approach_y)
-        self.goto_pos([approach_x, approach_y, 90])
+        rospy.loginfo("Move 1: Adjusting X to %.2f (at current Y=%.2f)", approach_x, current_y)
+        self.goto_pos([approach_x, current_y, 90]) # その場で横移動
 
-        # Move 2: 垂直二等分線を辿って出口へ
-        rospy.loginfo("Move 2: Follow bisector to exit at (%.2f, %.2f)", target_x_on_line, target_y_exit)
-        self.goto_pos([target_x_on_line, target_y_exit, 90])
+        rospy.loginfo("Move 2: Moving to approach point Y=%.2f", approach_y)
+        self.goto_pos([approach_x, approach_y, 90]) # アプローチ地点まで前進
 
-        rospy.loginfo("Finished geometric obstacle avoidance.")
+        # もしアプローチ地点と最終地点のXが大きく違うなら、再度X調整
+        if abs(target_x_on_line - approach_x) > 0.1:
+             rospy.loginfo("Move 3: Adjusting X to %.2f on bisector", target_x_on_line)
+             self.goto_pos([target_x_on_line, approach_y, 90])
 
+        rospy.loginfo("Move 4: Moving to exit Y=%.2f", TARGET_Y_EXIT)
+        self.goto_pos([target_x_on_line, TARGET_Y_EXIT, 90]) # 出口まで直進
+
+        rospy.loginfo("Finished robust geometric avoidance.")
     def find_safe_x_lane(self, pos_bboxes, current_x, current_y):
         """
         [v5] Y軸移動前(現在地)に、X軸の安全なレーンを見つける。
