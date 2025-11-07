@@ -681,254 +681,100 @@ class WrsMainController(object):
         rospy.loginfo("Finished execute_avoid_blocks.")
     """
     def execute_avoid_blocks(self):
-        """
-        [修正版・幾何学アプローチ] 障害物の重複検知に対応
-        """
-        TARGET_Y_EXIT = 3.3
-        DEFAULT_SAFE_X = 2.15
-        
-        # 障害物とみなす最小距離 (これより近い検知は同じ物体とみなす)
-        MIN_OBSTACLE_DIST = 0.5 # 50cm
-
-        rospy.loginfo("Starting ROBUST geometric obstacle avoidance...")
-        
-        try:
-            trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
-            current_x = trans.transform.translation.x
-            current_y = trans.transform.translation.y
-        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logerr("Could not get current robot pose: %s", e)
-            return
-
-        detected_objs = self.get_latest_detection().bboxes
-        raw_obstacles = []
-        for bbox in detected_objs:
-            pos = self.get_grasp_coordinate(bbox)
-            if pos is not None and pos.y > current_y:
-                raw_obstacles.append(pos)
-
-        # --- 1. クラスタリング（重複除去） ---
-        unique_obstacles = []
-        for p in raw_obstacles:
-            is_new = True
-            for up in unique_obstacles:
-                dist = math.sqrt((p.x - up.x)**2 + (p.y - up.y)**2)
-                if dist < MIN_OBSTACLE_DIST:
-                    is_new = False # すでに登録済みの障害物に近いので無視
-                    break
-            if is_new:
-                unique_obstacles.append(p)
-
-        # Y座標でソート
-        unique_obstacles.sort(key=lambda p: p.y)
-        
-        num_obstacles = len(unique_obstacles)
-        rospy.loginfo("Found %d unique obstacles.", num_obstacles)
-
-        # --- 2. 障害物数に応じた戦略 ---
-        if num_obstacles == 0:
-            # 障害物なし -> 中央を直進
-            rospy.loginfo("No obstacles. Going straight.")
-            approach_x, approach_y = DEFAULT_SAFE_X, current_y
-            target_x_on_line = DEFAULT_SAFE_X
-
-        elif num_obstacles == 1:
-            # 障害物1つ -> 障害物のいない側を通る
-            obs = unique_obstacles[0]
-            rospy.loginfo("Single obstacle at (%.2f, %.2f).", obs.x, obs.y)
-            
-            # 障害物が中央(2.15)より右にいれば、左(1.7)を通る。逆なら右(2.6)を通る。
-            if obs.x > DEFAULT_SAFE_X:
-                target_x_on_line = 1.7 # 左レーン
-            else:
-                target_x_on_line = 2.6 # 右レーン
-            
-            approach_x, approach_y = target_x_on_line, current_y
-
-        else:
-            # 障害物2つ以上 -> 手前の2つで垂直二等分線を計算
-            p1 = unique_obstacles[0]
-            p2 = unique_obstacles[1]
-            rospy.loginfo("Bisector between: P1(%.2f, %.2f), P2(%.2f, %.2f)", p1.x, p1.y, p2.x, p2.y)
-
-            mx, my = (p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0
-            a, b = p2.x - p1.x, p2.y - p1.y
-            c = -(a * mx + b * my)
-
-            norm_sq = a*a + b*b
-            # すでにクラスタリング済みなので norm_sq が極端に小さいことはないはずだが念のため
-            if norm_sq < 1e-4:
-                 rospy.logwarn("Obstacles too close even after filtering. Using default.")
-                 approach_x, approach_y = DEFAULT_SAFE_X, current_y
-                 target_x_on_line = DEFAULT_SAFE_X
-            else:
-                k = (a * current_x + b * current_y + c) / norm_sq
-                approach_x = current_x - a * k
-                approach_y = current_y - b * k
-
-                if abs(a) < 1e-6: target_x_on_line = DEFAULT_SAFE_X
-                else: target_x_on_line = (-b * TARGET_Y_EXIT - c) / a
-
-        # --- 3. 安全な移動実行 (X→Y分離) ---
-        # 斜め移動は衝突のリスクがあるため、ここでも分離移動を採用します
-        
-        rospy.loginfo("Move 1: Adjusting X to %.2f (at current Y=%.2f)", approach_x, current_y)
-        self.goto_pos([approach_x, current_y, 90]) # その場で横移動
-
-        rospy.loginfo("Move 2: Moving to approach point Y=%.2f", approach_y)
-        self.goto_pos([approach_x, approach_y, 90]) # アプローチ地点まで前進
-
-        # もしアプローチ地点と最終地点のXが大きく違うなら、再度X調整
-        if abs(target_x_on_line - approach_x) > 0.1:
-             rospy.loginfo("Move 3: Adjusting X to %.2f on bisector", target_x_on_line)
-             self.goto_pos([target_x_on_line, approach_y, 90])
-
-        rospy.loginfo("Move 4: Moving to exit Y=%.2f", TARGET_Y_EXIT)
-        self.goto_pos([target_x_on_line, TARGET_Y_EXIT, 90]) # 出口まで直進
-
-        rospy.loginfo("Finished robust geometric avoidance.")
-    def find_safe_x_lane(self, pos_bboxes, current_x, current_y):
-        """
-        [v5] Y軸移動前(現在地)に、X軸の安全なレーンを見つける。
-        安全なレーンが複数ある場合、[最も近い]ものを選択する。
-        """
-        interval = 0.45
-        pos_xa = 1.7
-        pos_xb = pos_xa + interval
-        pos_xc = pos_xb + interval
-
-        # 各レーンの中心X座標
-        lane_centers = {
-            "xa": pos_xa,
-            "xb": pos_xb,
-            "xc": pos_xc
-        }
-        
-        # 各レーンの安全フラグ (1=安全, 0=ブロック)
-        lane_safety = {
-            "xa": 1,
-            "xb": 1,
-            "xc": 1
-        }
-        
-        # X軸（横移動）チェック用のY座標範囲 (±15cm)
-        X_CHECK_Y_MIN = current_y - 0.15
-        X_CHECK_Y_MAX = current_y + 0.15
-        
-        # 安全バッファ（横移動の経路チェック用）
-        SAFETY_BUFFER = 0.3 # 30cm (ロボットの車体幅半分)
-
-        for bbox in pos_bboxes:
-            pos_x = bbox.x
-            pos_y = bbox.y
-
-            # --- X軸（横移動）経路の安全チェック ---
-            if (X_CHECK_Y_MIN < pos_y < X_CHECK_Y_MAX):
-                # この障害物は「今いるY座標」の近くにある
-                
-                # 'xa'レーンへの横移動経路(current_x と xa の間)をブロックしていないか？
-                if (pos_x - SAFETY_BUFFER) < max(current_x, lane_centers["xa"]) and \
-                   (pos_x + SAFETY_BUFFER) > min(current_x, lane_centers["xa"]):
-                    lane_safety["xa"] = 0 # ブロックされている
-                
-                # 'xb'レーンへの横移動経路をブロックしていないか？
-                if (pos_x - SAFETY_BUFFER) < max(current_x, lane_centers["xb"]) and \
-                   (pos_x + SAFETY_BUFFER) > min(current_x, lane_centers["xb"]):
-                    lane_safety["xb"] = 0 # ブロックされている
-                
-                # 'xc'レーンへの横移動経路をブロックしていないか？
-                if (pos_x - SAFETY_BUFFER) < max(current_x, lane_centers["xc"]) and \
-                   (pos_x + SAFETY_BUFFER) > min(current_x, lane_centers["xc"]):
-                    lane_safety["xc"] = 0 # ブロックされている
-
-        rospy.loginfo("X-Lane safety (Blocked=0): xa=%.2f, xb=%.2f, xc=%.2f", 
-                      lane_safety["xa"], lane_safety["xb"], lane_safety["xc"])
-
-        # スコアが0（ブロック）でないレーンだけを候補にする
-        safe_lanes = {lane: center for lane, center in lane_centers.items() if lane_safety[lane] > 0}
-
-        if not safe_lanes:
-            rospy.logwarn("All X-lanes are blocked! Staying at current X=%.2f.", current_x)
-            return current_x # 安全なレーンがない場合、動かない (これが最も安全)
-        else:
-            # --- ★ロジック変更点 ---
-            # 安全なレーンの中で、[現在地に最も近い]レーンを選択する
-            best_lane_name = min(safe_lanes.keys(), key=lambda lane: abs(safe_lanes[lane] - current_x))
-            rospy.loginfo("Selected best (closest safe) X-lane: %s", best_lane_name)
-            return safe_lanes[best_lane_name]
-    def select_next_waypoint(self, current_stp, pos_bboxes):
-        """
-        [元に戻したロジック] xa,xb,xcの固定優先順位でウェイポイントを返す。
-        (10ステップ、Yaw=90度固定は維持)
-        """
-        interval = 0.45
-        pos_xa = 1.7
-        pos_xb = pos_xa + interval
-        pos_xc = pos_xb + interval
-
-        # --- Yaw(向き)をすべて90度に固定 (回転防止のため) ---
-        waypoints = {
-            "xa": [ [pos_xa, 1.995, 90], [pos_xa, 2.14, 90], [pos_xa, 2.285, 90], [pos_xa, 2.43, 90], [pos_xa, 2.575, 90],
-                    [pos_xa, 2.72, 90], [pos_xa, 2.865, 90], [pos_xa, 3.01, 90], [pos_xa, 3.155, 90], [pos_xa, 3.3, 90] ], 
-            "xb": [ [pos_xb, 1.995, 90], [pos_xb, 2.14, 90], [pos_xb, 2.285, 90], [pos_xb, 2.43, 90], [pos_xb, 2.575, 90],
-                    [pos_xb, 2.72, 90], [pos_xb, 2.865, 90], [pos_xb, 3.01, 90], [pos_xb, 3.155, 90], [pos_xb, 3.3, 90] ],
-            "xc": [ [pos_xc, 1.995, 90], [pos_xc, 2.14, 90], [pos_xc, 2.285, 90], [pos_xc, 2.43, 90], [pos_xc, 2.575, 90],
-                    [pos_xc, 2.72, 90], [pos_xc, 2.865, 90], [pos_xc, 3.01, 90], [pos_xc, 3.155, 90], [pos_xc, 3.3, 90] ]
-        }
+        # [統合安全チェック] X軸移動を先に実行し、安全を確保してからY軸で前進
         
         # 10ステップのY座標境界
         y_thresholds = [1.85, 1.995, 2.14, 2.285, 2.43, 2.575, 2.72, 2.865, 3.01, 3.155, 3.3]
         
-        #現在のyと次のy
-        current_y = y_thresholds[current_stp]
-        next_y = y_thresholds[current_stp + 1]
-        
-        # --- ここからが元のロジック (固定優先順位) ---
-        
-        # posがxa,xb,xcのラインに近い場合は候補から削除
-        is_to_xa = True
-        is_to_xb = True
-        is_to_xc = True
-
-        for bbox in pos_bboxes:
-            pos_x = bbox.x
-            pos_y = bbox.y
-
-            # NOTE Hint:ｙ座標次第で無視してよいオブジェクトもある。
-            if not (current_y < pos_y < next_y):
-                # rospy.loginfo("  -> Ignored (Out of Y-Range)")
-                continue  # 判定範囲外の障害物は無視する
+        for i in range(10): # 10ステップのループ
             
-            if pos_x < pos_xa + (interval/2):
-                is_to_xa = False
-                # rospy.loginfo("is_to_xa=False")
-                continue
-            elif pos_x < pos_xb + (interval/2):
-                is_to_xb = False
-                # rospy.loginfo("is_to_xb=False")
-                continue
-            elif pos_x < pos_xc + (interval/2):
-                is_to_xc = False
-                # rospy.loginfo("is_to_xc=False")
+            # --- 1. 現在地の取得 ---
+            try:
+                trans = self.tf_buffer.lookup_transform("map", "base_link", rospy.Time(0), rospy.Duration(1.0))
+                current_x = trans.transform.translation.x
+                current_y = trans.transform.translation.y
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+                rospy.logerr("Could not get current robot pose: %s", e)
                 continue
 
-        x_line = None   # xa,xb,xcいずれかのリストが入る
-        # NOTE 優先的にxcに移動する
-        if is_to_xc:
-            x_line = waypoints["xc"]
-            rospy.loginfo("select next waypoint_xc")
-        elif is_to_xb:
-            x_line = waypoints["xb"]
-            rospy.loginfo("select next waypoint_xb")
-        elif is_to_xa:
-            x_line = waypoints["xa"]
-            rospy.loginfo("select next waypoint_xa")
+            # --- 2. 次の目標Y座標 ---
+            target_y = y_thresholds[i+1]
+
+            # --- 3. 障害物検知 ---
+            detected_objs = self.get_latest_detection()
+            pos_bboxes = [self.get_grasp_coordinate(bbox) for bbox in detected_objs.bboxes]
+
+            # --- 4. 最適なレーンを選択 (横移動+前進の両方が安全な場所) ---
+            target_x = self.select_best_safe_lane(pos_bboxes, current_x, current_y, target_y)
+
+            # --- 5. 実行: まず横移動 (X) ---
+            if abs(target_x - current_x) > 0.05: # 5cm以上の移動が必要なら
+                rospy.loginfo("Step %d: Adjusting X to %.2f (at Y=%.2f)", i, target_x, current_y)
+                self.goto_pos([target_x, current_y, 90])
+                rospy.sleep(0.5) # X移動の完了を待つ
+
+            # --- 6. 実行: 次に前進 (Y) ---
+            rospy.loginfo("Step %d: Advancing Y to %.2f (in lane X=%.2f)", i, target_y, target_x)
+            self.goto_pos([target_x, target_y, 90])
+            rospy.sleep(0.5) # Y移動の完了を待つ
+
+        rospy.loginfo("Finished integrated avoid blocks.")
+    def select_best_safe_lane(self, pos_bboxes, current_x, current_y, target_y):
+        """
+        [NEW - 統合安全チェック]
+        現在の(current_x, current_y)から、あるレーンへ横移動し、
+        そこからtarget_yまで前進する経路がすべて安全かどうかを判定する。
+        """
+        # レーン定義
+        interval = 0.45
+        pos_xa = 1.7
+        pos_xb = 1.7 + interval       # 2.15
+        pos_xc = 1.7 + (interval * 2) # 2.60
+        lane_centers = {"xa": pos_xa, "xb": pos_xb, "xc": pos_xc}
+
+        # 安全マージン (ロボット半径 + 障害物半径 + バッファ)
+        SAFETY_BUFFER = 0.4 # 40cm
+
+        # 各レーンの安全フラグ (Trueで初期化)
+        lane_safe = {"xa": True, "xb": True, "xc": True}
+
+        for pos in pos_bboxes:
+            if pos is None: continue
+            
+            # --- チェック1: 横移動の安全性 ---
+            # 現在のY座標付近(±20cm)にある障害物について
+            if (current_y - 0.2) < pos.y < (current_y + 0.2):
+                for lane_name, lane_x in lane_centers.items():
+                    # 現在地からこのレーンへの横移動パス(X)と障害物(pos.x)が重なるか？
+                    path_min_x = min(current_x, lane_x) - SAFETY_BUFFER
+                    path_max_x = max(current_x, lane_x) + SAFETY_BUFFER
+                    if path_min_x < pos.x < path_max_x:
+                        lane_safe[lane_name] = False # このレーンへの横移動は危険
+                        rospy.logwarn("X-Path to %s blocked by obstacle at (%.2f, %.2f)", lane_name, pos.x, pos.y)
+
+            # --- チェック2: 前進の安全性 ---
+            # これから進むY座標(current_y ~ target_y)の間にある障害物について
+            if current_y < pos.y < target_y:
+                 for lane_name, lane_x in lane_centers.items():
+                     # このレーンの前進パス(X)と障害物(pos.x)が重なるか？
+                     if (lane_x - SAFETY_BUFFER) < pos.x < (lane_x + SAFETY_BUFFER):
+                         lane_safe[lane_name] = False # このレーンでの前進は危険
+                         rospy.logwarn("Y-Path in %s blocked by obstacle at (%.2f, %.2f)", lane_name, pos.x, pos.y)
+
+        # 安全なレーン候補を抽出
+        safe_candidates = [lane for lane, is_safe in lane_safe.items() if is_safe]
+        
+        rospy.loginfo("Safe lanes for Step: %s", safe_candidates)
+
+        if not safe_candidates:
+            rospy.logwarn("NO COMPLETELY SAFE LANE! Staying in current X lane as emergency fallback.")
+            return current_x # 危険なら動かないのが一番マシ
         else:
-            # a,b,cいずれにも移動できない場合
-            x_line = waypoints["xb"]
-            rospy.loginfo("select default waypoint")
-
-        return x_line[current_stp]
+            # 安全な候補の中で、現在地に最も近いレーンを選ぶ（無駄な動きを減らす）
+            best_lane = min(safe_candidates, key=lambda l: abs(lane_centers[l] - current_x))
+            rospy.loginfo("Selected best (closest safe) lane: %s", best_lane)
+            return lane_centers[best_lane]
+            
         
     def execute_task1(self):
         """
