@@ -23,7 +23,7 @@
     "near_tall_table_front": [-0.02, 0.2, 95],
 
     "drawer_left_place": [0.48, 0.25, -90],
-    "drawer_top_place": [0.178, 0.25, -90],
+    "drawer_top_place": [0.135, 0.25, -90],
     "tray_a_place": [1.5, 0.0, -90],
     "tray_b_place": [1.9, 0.0, -90],
     "container_a_place": [1.1, 0.0, -90],
