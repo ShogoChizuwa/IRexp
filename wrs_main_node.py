@@ -783,8 +783,11 @@ class WrsMainController(object):
                 category, place_name = self.get_placement_info(label)
                 #place_name = "bin_a"
 
-                # 2. 常に "put_in_bin" の姿勢を使う（テスト用）
-                into_pose = "put_in_bin" 
+                # 2. 姿勢を決定
+                if (place_name.equal("drawer_top_place")):
+                    into_pose = "put_in_drawer"
+                else:
+                    into_pose = "put_in_bin"
 
                 # 3. 取得した配置場所(place_name)と、固定の姿勢(into_pose)で物体を置く
                 self.put_in_place(place_name, into_pose)

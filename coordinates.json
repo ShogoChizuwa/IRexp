@@ -20,10 +20,10 @@
     "tall_table_front": [-0.02, 0.7, 95],
     "long_table_r_front": [1.2, 0.7, 90],
     "near_long_table_l_front": [1.2, 0.2, 90],
-    "near_tall_table_front": [-0.02, 0.2, 95],
+    "near_tall_table_front": [-0.02, 0.3, 95],
 
-    "drawer_left_place": [0.48, 0.25, -90],
-    "drawer_top_place": [0.135, 0.25, -90],
+    "drawer_left_place": [0.48, 0.2, -90],
+    "drawer_top_place": [0.135, 0.2, -90],
     "tray_a_place": [1.5, 0.0, -90],
     "tray_b_place": [1.9, 0.0, -90],
     "container_a_place": [1.1, 0.0, -90],

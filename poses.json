@@ -1,5 +1,14 @@
 {
   "put_in_bin": {
+    "arm_lift_joint": 0.0,
+    "arm_flex_joint": -1.0,
+    "arm_roll_joint": 0.0,
+    "wrist_flex_joint": -0.57,
+    "wrist_roll_joint": 0.0,
+    "head_tilt_joint": 0.0,
+    "head_pan_joint": 0.0
+  },
+  "put_in_drawer": {
     "arm_lift_joint": 0.2,
     "arm_flex_joint": -1.0,
     "arm_roll_joint": 0.0,
