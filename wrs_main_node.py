@@ -784,7 +784,7 @@ class WrsMainController(object):
                 #place_name = "bin_a"
 
                 # 2. 姿勢を決定
-                if (place_name.equal("drawer_top_place")):
+                if (place_name == "drawer_top_place"):
                     into_pose = "put_in_drawer"
                 else:
                     into_pose = "put_in_bin"
