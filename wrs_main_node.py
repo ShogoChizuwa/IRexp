@@ -696,8 +696,8 @@ class WrsMainController(object):
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.178, -0.3, 0.275, 0, -100, 90)
-        self.pull_out_trofast(0.178, -0.31, 0.545, 0, -100, 90)
+        self.pull_out_trofast(0.135, -0.3, 0.275, 0, -100, 90)
+        self.pull_out_trofast(0.135, -0.31, 0.545, 0, -100, 90)
         self.pull_out_trofast(0.48, -0.31, 0.275, 0, -100, 90, True)
        
         total_cnt = 0
