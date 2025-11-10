@@ -723,7 +723,7 @@ class WrsMainController(object):
                 GRASPABLE_Y_THRESHOLD = 2.0
 
                 # 4. 全ての検出物体をチェック
-                for obj in detected_objs_list:
+                for obj in detected_objs_list.bboxes:
                     
                     # 5. 【重要】get_most_graspable_obj の「IGNORE_LIST」ロジックをここで実行
                     if obj.label in self.IGNORE_LIST:
