@@ -474,6 +474,10 @@ class WrsMainController(object):
         gripper.command(0)
         whole_body.move_end_effector_pose(x, y + self.TROFAST_Y_OFFSET, z, yaw,  pitch, roll)
         gripper.command(1)
+        if (left):
+            self.goto_name("stair_like_drawer2")
+        else:
+            self.goto_name("stair_like_drawer")
         self.change_pose("all_neutral")
 
     def push_in_trofast(self, pos_x, pos_y, pos_z, yaw, pitch, roll):
