@@ -404,7 +404,7 @@ class WrsMainController(object):
         rospy.sleep(1.0) # (例: 1.0秒待機．掴む物体に応じて調整)
         whole_body.move_end_effector_pose(grasp_back_safe["x"], grasp_back_safe["y"], grasp_back_safe["z"], yaw, pitch, roll)
 
-    def grasp_from_front_side(self, grasp_pos):
+    def grasp_from_front_side(self, grasp_pos, bbox=None):
         """
         正面把持を行う
         ややアームを下に向けている
@@ -413,16 +413,17 @@ class WrsMainController(object):
         rospy.loginfo("grasp_from_front_side (%.2f, %.2f, %.2f)",grasp_pos.x, grasp_pos.y, grasp_pos.z)
         self.grasp_from_side(grasp_pos.x, grasp_pos.y, grasp_pos.z, -90, -100, 0, "-y")
 
-    def grasp_from_upper_side(self, grasp_pos):
+    def grasp_from_upper_side(self, grasp_pos, bbox=None):
         """
         上面から把持を行う
         オブジェクトに寄るときは、y軸から近づく上面からは近づかない
         """
-        grasp_pos.z += self.HAND_PALM_Z_OFFSET
+        if (bbox.h > 2 * self.HAND_PALM_Z_OFFSET):
+            grasp_pos.z += self.HAND_PALM_Z_OFFSET
         rospy.loginfo("grasp_from_upper_side (%.2f, %.2f, %.2f)",grasp_pos.x, grasp_pos.y, grasp_pos.z)
         self.grasp_from_side(grasp_pos.x, grasp_pos.y, grasp_pos.z, -90, -160, 0, "-y")
 
-    def exec_graspable_method(self, grasp_pos, label=""):
+    def exec_graspable_method(self, grasp_pos, label="", bbox=None):
         """
         task1専用:posの位置によって把持方法を判定し実行する。
         """
@@ -445,7 +446,7 @@ class WrsMainController(object):
             else:
                 method = self.grasp_from_upper_side
 
-        method(grasp_pos)
+        method(grasp_pos, bbox)
         return True
 
     def put_in_place(self, place, into_pose):
@@ -692,12 +693,13 @@ class WrsMainController(object):
         rospy.loginfo("#### start Task 1 ####")
         hsr_position = [
             ("near_long_table_l", "look_at_near_floor"),
+            ("near_tall_table", "look_at_near_floor"),
             ("tall_table", "look_at_tall_table"),
             ("long_table_r", "look_at_tall_table"),
         ]
 
-        self.pull_out_trofast(0.178, -0.3, 0.275, 0, -100, 90)
-        self.pull_out_trofast(0.178, -0.31, 0.545, 0, -100, 90)
+        self.pull_out_trofast(0.135, -0.3, 0.275, 0, -100, 90)
+        self.pull_out_trofast(0.135, -0.31, 0.545, 0, -100, 90)
         self.pull_out_trofast(0.48, -0.31, 0.275, 0, -100, 90, True)
        
         total_cnt = 0
@@ -763,13 +765,14 @@ class WrsMainController(object):
                 best_obj_info = grasp_candidates[0]
                 label = best_obj_info["label"]
                 grasp_pos = best_obj_info["pos"]
+                bbox = best_obj_info["bbox"] # bbox を変数にする
                 
                 rospy.loginfo("grasp the " + label)
 
                 # 12. 把持を実行
                 self.change_pose("grasp_on_table")
                 
-                if not self.exec_graspable_method(grasp_pos, label):
+                if not self.exec_graspable_method(grasp_pos, label, bbox):
                     rospy.logwarn("exec_graspable_method returned False for [%s]", label)
                     continue
                 
