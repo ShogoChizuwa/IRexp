@@ -137,7 +137,7 @@ class WrsMainController():
         self.instruction_sub = rospy.Subscriber("/message",    String, self.instruction_cb,
                                                 queue_size=10)
         self.detection_sub = rospy.Subscriber("/detect_msg", String, self.detection_cb,
-                                                queue_size=10)
+                                              queue_size=10)
 
     @staticmethod
     def get_path(pathes, package="wrs_algorithm"):
@@ -236,7 +236,7 @@ class WrsMainController():
         return res.bboxes
 
     def get_grasp_coordinate(self, bbox):
-        """
+        """62305125鎌田優介
         BBox情報から把持座標を取得する
         """
         # BBox情報からtfを生成して、座標を取得
@@ -300,7 +300,7 @@ class WrsMainController():
 
     @classmethod
     def get_most_graspable_bboxes_by_label(cls, obj_list, label):
-        """
+        """62305125鎌田優介
         label名が一致するオブジェクトの中から最も把持すべき物体のbboxを返す
         """
         match_objs = [obj for obj in obj_list if obj.label in label]
@@ -322,7 +322,7 @@ class WrsMainController():
 
     @staticmethod
     def extract_target_obj_and_person(instruction):
-        """
+        """62305125鎌田優介
         指示文("物体名 to 人" 形式)から物体と人物を抽出する
         """
         rospy.loginfo("[extract_target_obj_and_person] instruction:" + instruction)
@@ -353,7 +353,7 @@ class WrsMainController():
         return target_obj, target_person
 
     def get_placement_info(self, label):
-        """
+        """62305125鎌田優介
         検出した物体のラベル(label)から、
         それが属するカテゴリ(category)と、
         置くべき場所(place)の座標名を返す。
@@ -379,7 +379,7 @@ class WrsMainController():
         return category, place
 
     def grasp_from_side(self, pos_x, pos_y, pos_z, yaw, pitch, roll, preliminary="-y"):
-        """
+        """62305125鎌田優介
         把持の一連の動作を行う
 
         NOTE: tall_tableに対しての予備動作を生成するときはpreliminary="-y"と設定することになる。
@@ -545,14 +545,14 @@ class WrsMainController():
             # 6. Y座標フィルターを実行
             if grasp_pos.y >= self.GRASPABLE_Y_THRESHOLD:
                 rospy.loginfo("Ignoring object [%s] (Too far: Y=%.2f)",
-                            obj.label, grasp_pos.y)
+                              obj.label, grasp_pos.y)
                 continue
 
             # 7. 全てのフィルターを通過した物体のみ、候補リストに追加
             grasp_candidates.append({
-                "bbox": obj, 
+                "bbox": obj,
                 "score": self.calc_score_bbox(obj),  # score変数をインライン化
-                "label": obj.label, 
+                "label": obj.label,
                 "pos": grasp_pos
             })
 
@@ -568,7 +568,7 @@ class WrsMainController():
         return grasp_candidates[0]
 
     def deliver_to_target(self, target_obj, target_person):
-        """
+        """62305125鎌田優介
         棚で取得したものを人に渡す。
         """
         self.change_pose("look_at_near_floor")
@@ -615,7 +615,7 @@ class WrsMainController():
     def execute_avoid_blocks(self):
         """62311016曽根慎太郎
         [Task 2a] 障害物ブロックを回避しながら前進する。
-        
+
         10ステップに分割されたY座標境界(y_thresholds)を目標に、
         各ステップで「横移動の安全性」と「前進の安全性」をチェックする。
         最適なレーン(target_x)を選択した後、
@@ -623,8 +623,6 @@ class WrsMainController():
         2. 次に目標の Y 座標へ前進
         という動作を繰り返す。
         """
-        # TODO 自分の名前とは別に、関数の説明をするDocstringを記述してください
-        # 完了したらTODO含めこれらのコメントを削除すること
 
         # [統合安全チェック] X軸移動を先に実行し、安全を確保してからY軸で前進
 
@@ -689,7 +687,6 @@ class WrsMainController():
         現在の(current_x, current_y)から、あるレーンへ横移動し、
         そこからtarget_yまで前進する経路がすべて安全かどうかを判定する。
         """
-        # TODO: ローカル変数が多すぎるので減らしてください。(→ 定数をクラス属性に移動し解決)
 
         # 各レーンの安全フラグ (クラス定数から動的生成)
         lane_safe = {name: True for name in self.LANE_CENTERS}
@@ -741,7 +738,7 @@ class WrsMainController():
         # --- 安全な候補の中で、現在地に最も近いレーンを選ぶ ---
         best_lane = min(
             safe_candidates,
-            key=lambda l: abs(self.LANE_CENTERS[l] - current_x)
+            key=lambda lane: abs(self.LANE_CENTERS[lane] - current_x)
         )
         rospy.loginfo("Selected best (closest safe) lane: %s", best_lane)
         return self.LANE_CENTERS[best_lane]
@@ -827,7 +824,7 @@ class WrsMainController():
         whole_body.move_to_go()
 
     def execute_task2b(self):
-        """
+        """62305125鎌田優介
         task2bを実行する
         """
         rospy.loginfo("#### start Task 2b ####")
